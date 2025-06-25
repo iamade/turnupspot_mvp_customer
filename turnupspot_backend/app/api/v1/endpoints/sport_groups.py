@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 import uuid
+from io import BytesIO
+from fastapi.responses import StreamingResponse
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -15,6 +17,10 @@ from app.schemas.sport_group import (
 )
 from app.core.exceptions import GroupNotFoundException, ForbiddenException, UnauthorizedException
 from app.services.geocoding import geocoding_service
+from app.services.qr_code import generate_qr_code
+from app.services.team_formation import form_teams_first_come, form_teams_random, rotate_teams_winner_stays
+from app.services.tournament_service import create_tournament, add_tournament_result, get_tournament_results
+from app.services.stats import submit_stat, approve_stat, reject_stat, get_pending_stats
 
 router = APIRouter()
 
@@ -367,3 +373,68 @@ def remove_member(
     db.commit()
     
     return {"message": "Member removed successfully"}
+
+
+# QR Code Invite Endpoint
+@router.get("/{group_id}/invite/qr")
+def get_group_invite_qr(group_id: str):
+    invite_url = f"https://yourapp.com/join/{group_id}"
+    qr_bytes = generate_qr_code(invite_url)
+    return StreamingResponse(BytesIO(qr_bytes), media_type="image/png")
+
+
+# Team Formation Endpoint
+@router.post("/{group_id}/form-teams")
+def form_teams(group_id: str, method: str = "first_come", team_size: int = 5, db: Session = Depends(get_db)):
+    group = db.query(SportGroup).filter(SportGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    players = [dict(user_id=m.user_id) for m in group.members if m.is_approved]
+    if method == "random":
+        teams = form_teams_random(players, team_size)
+    else:
+        teams = form_teams_first_come(players, team_size)
+    return {"teams": teams}
+
+
+# Tournament Management Endpoints
+@router.post("/{group_id}/tournament")
+def create_group_tournament(group_id: str, name: str, teams: list, prize: float = None, escrow: float = None):
+    tournament = create_tournament(group_id, name, teams, prize, escrow)
+    return {"tournament_id": tournament.id}
+
+
+@router.post("/{group_id}/tournament/result")
+def add_group_tournament_result(group_id: str, result: dict):
+    success = add_tournament_result(group_id, result)
+    return {"ok": success}
+
+
+@router.get("/{group_id}/tournament/results")
+def get_group_tournament_results(group_id: str):
+    results = get_tournament_results(group_id)
+    return {"results": results}
+
+
+# Stats Approval Endpoints
+@router.post("/stats/submit")
+def submit_game_stat(stat: dict):
+    submit_stat(stat)
+    return {"ok": True}
+
+
+@router.get("/stats/pending")
+def get_pending_game_stats():
+    return {"pending": get_pending_stats()}
+
+
+@router.post("/stats/approve/{stat_idx}")
+def approve_game_stat(stat_idx: int):
+    ok = approve_stat(stat_idx)
+    return {"ok": ok}
+
+
+@router.post("/stats/reject/{stat_idx}")
+def reject_game_stat(stat_idx: int):
+    ok = reject_stat(stat_idx)
+    return {"ok": ok}

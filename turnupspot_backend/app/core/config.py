@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: Optional[str] = config("AWS_ACCESS_KEY_ID", default=None)
     AWS_SECRET_ACCESS_KEY: Optional[str] = config("AWS_SECRET_ACCESS_KEY", default=None)
     AWS_BUCKET_NAME: Optional[str] = config("AWS_BUCKET_NAME", default=None)
-    AWS_REGION: str = config("AWS_REGION", default="us-east-1")
+    AWS_REGION: str = config("AWS_REGION", default="ca-central-1")
     
     # Stripe
     STRIPE_SECRET_KEY: Optional[str] = config("STRIPE_SECRET_KEY", default=None)
@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     
     # Google Maps
     GOOGLE_MAPS_API_KEY: str = config("GOOGLE_MAPS_API_KEY")
+    
+    # MongoDB
+    MONGODB_URI: str = config("MONGODB_URI")
+    MONGODB_DB_NAME: str = config("MONGODB_DB_NAME")
     
     class Config:
         env_file = ".env"

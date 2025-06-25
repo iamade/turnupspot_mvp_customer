@@ -10,6 +10,9 @@ from app.models.sport_group import SportGroupMember
 from app.models.chat import ChatRoom, ChatMessage, ChatRoomType, MessageType
 from app.schemas.chat import ChatMessageCreate, ChatMessageUpdate, ChatMessageResponse, ChatRoomResponse
 from app.core.exceptions import ForbiddenException
+from app.services import chat_service
+from bson import ObjectId
+from fastapi import BackgroundTasks
 
 router = APIRouter()
 
@@ -98,7 +101,7 @@ def get_chat_room(
 
 
 @router.get("/rooms/{room_id}/messages", response_model=List[ChatMessageResponse])
-def get_chat_messages(
+async def get_chat_messages(
     room_id: int,
     skip: int = 0,
     limit: int = 50,
@@ -126,20 +129,15 @@ def get_chat_messages(
         if not membership:
             raise ForbiddenException("You don't have access to this chat room")
     
-    messages = db.query(ChatMessage).filter(
-        and_(
-            ChatMessage.chat_room_id == room_id,
-            ChatMessage.is_deleted == False
-        )
-    ).order_by(ChatMessage.created_at.desc()).offset(skip).limit(limit).all()
-    
-    return list(reversed(messages))
+    messages = await chat_service.get_chat_messages(str(room_id), skip, limit)
+    return messages
 
 
 @router.post("/rooms/{room_id}/messages", response_model=ChatMessageResponse)
-def send_message(
+async def send_message(
     room_id: int,
     message_data: ChatMessageCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -164,81 +162,39 @@ def send_message(
         if not membership:
             raise ForbiddenException("You don't have access to this chat room")
     
-    # Create message
-    db_message = ChatMessage(
-        chat_room_id=room_id,
-        sender_id=current_user.id,
-        content=message_data.content,
-        message_type=message_data.message_type,
-        file_url=message_data.file_url,
-        file_name=message_data.file_name,
-        file_size=message_data.file_size
-    )
-    
-    db.add(db_message)
-    db.commit()
-    db.refresh(db_message)
-    
-    return db_message
+    message_dict = message_data.dict()
+    message_dict["chat_id"] = str(room_id)
+    message_dict["sender_id"] = str(current_user.id)
+    chat_message = await chat_service.create_chat_message(message_dict)
+    return chat_message
 
 
 @router.put("/messages/{message_id}", response_model=ChatMessageResponse)
-def update_message(
-    message_id: int,
+async def update_message(
+    message_id: str,
     message_update: ChatMessageUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update a chat message (sender only)"""
-    message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
-    if not message:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Message not found"
-        )
-    
-    # Check if user is the sender
-    if message.sender_id != current_user.id:
-        raise ForbiddenException("You can only edit your own messages")
-    
-    # Update message
-    from datetime import datetime
-    message.content = message_update.content
-    message.is_edited = True
-    message.edited_at = datetime.utcnow()
-    
-    db.commit()
-    db.refresh(message)
-    
-    return message
+    update_data = message_update.dict(exclude_unset=True)
+    chat_message = await chat_service.update_chat_message(message_id, update_data)
+    if not chat_message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return chat_message
 
 
 @router.delete("/messages/{message_id}")
-def delete_message(
-    message_id: int,
+async def delete_message(
+    message_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Delete a chat message (sender only)"""
-    message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
-    if not message:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Message not found"
-        )
-    
-    # Check if user is the sender or admin
-    if message.sender_id != current_user.id and current_user.role != "admin":
-        raise ForbiddenException("You can only delete your own messages")
-    
-    # Soft delete
-    from datetime import datetime
-    message.is_deleted = True
-    message.deleted_at = datetime.utcnow()
-    
-    db.commit()
-    
-    return {"message": "Message deleted successfully"}
+    deleted = await chat_service.delete_chat_message(message_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"ok": True}
 
 
 @router.websocket("/ws/{room_id}")

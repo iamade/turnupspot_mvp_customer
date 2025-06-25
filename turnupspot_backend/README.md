@@ -13,6 +13,23 @@ A comprehensive FastAPI backend for the TurnUp Spot platform - Events, Sports, a
 - **Authentication**: JWT-based authentication with role-based access control
 - **File Upload**: Support for images and documents
 - **Real-time Features**: WebSocket support for live updates
+- **Superadmin Dashboard**: Manage users, events, and sports
+- **Chat (MongoDB)**: Real-time messaging using MongoDB
+- **Notifications (Redis)**: Real-time notifications using Redis
+- **QR Code Invite**: Generate QR codes for sport group invites
+- **Team Formation Logic**: Form teams based on first-come or random selection
+- **Tournament Management**: Create and manage tournaments
+- **Stats Approval (Maker-Checker)**: Submit and approve stats for sports
+
+## Dependencies
+
+- **FastAPI**: Modern, fast web framework for building APIs
+- **SQLAlchemy**: SQL toolkit and ORM
+- **PostgreSQL**: Primary database
+- **Motor**: MongoDB driver for Python
+- **aioredis**: Redis client for Python
+- **qrcode**: QR code generation
+- **bson**: BSON library for MongoDB
 
 ## Tech Stack
 
@@ -50,37 +67,43 @@ turnupspot_backend/
 - Python 3.8+
 - PostgreSQL
 - Redis (optional, for caching)
+- MongoDB
 
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd turnupspot_backend
    ```
 
 2. **Create virtual environment**
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
 3. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 4. **Environment setup**
+
    ```bash
    cp .env.example .env
    # Edit .env with your configuration
    ```
 
 5. **Database setup**
+
    ```bash
    # Create database
    createdb turnupspot_db
-   
+
    # Run migrations
    alembic upgrade head
    ```
@@ -119,6 +142,10 @@ STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
 # SendGrid (for emails)
 SENDGRID_API_KEY=your-sendgrid-api-key
 FROM_EMAIL=noreply@turnupspot.com
+
+# MongoDB
+MONGODB_URI=mongodb://localhost:27017/
+MONGODB_DB_NAME=turnupspot_db
 ```
 
 ## API Documentation
@@ -131,16 +158,19 @@ Once the server is running, you can access:
 ## API Endpoints
 
 ### Authentication
+
 - `POST /api/v1/auth/register` - Register new user
 - `POST /api/v1/auth/login` - Login user
 - `POST /api/v1/auth/refresh` - Refresh access token
 
 ### Users
+
 - `GET /api/v1/users/me` - Get current user profile
 - `PUT /api/v1/users/me` - Update current user profile
 - `GET /api/v1/users/{user_id}` - Get user by ID
 
 ### Sport Groups
+
 - `POST /api/v1/sport-groups/` - Create sport group
 - `GET /api/v1/sport-groups/` - Get all sport groups
 - `GET /api/v1/sport-groups/{group_id}` - Get sport group by ID
@@ -148,8 +178,18 @@ Once the server is running, you can access:
 - `POST /api/v1/sport-groups/{group_id}/join` - Join sport group
 - `POST /api/v1/sport-groups/{group_id}/leave` - Leave sport group
 - `GET /api/v1/sport-groups/{group_id}/members` - Get group members
+- `GET /api/v1/sport-groups/{group_id}/invite/qr` - Get QR code for group invite
+- `POST /api/v1/sport-groups/{group_id}/form-teams` - Form teams
+- `POST /api/v1/sport-groups/{group_id}/tournament` - Create tournament
+- `POST /api/v1/sport-groups/{group_id}/tournament/result` - Add tournament result
+- `GET /api/v1/sport-groups/{group_id}/tournament/results` - Get tournament results
+- `POST /api/v1/sport-groups/stats/submit` - Submit stat for approval
+- `GET /api/v1/sport-groups/stats/pending` - List pending stats
+- `POST /api/v1/sport-groups/stats/approve/{stat_idx}` - Approve stat
+- `POST /api/v1/sport-groups/stats/reject/{stat_idx}` - Reject stat
 
 ### Events
+
 - `POST /api/v1/events/` - Create event
 - `GET /api/v1/events/` - Get all events
 - `GET /api/v1/events/{event_id}` - Get event by ID
@@ -158,6 +198,7 @@ Once the server is running, you can access:
 - `POST /api/v1/events/{event_id}/unregister` - Unregister from event
 
 ### Vendors
+
 - `POST /api/v1/vendors/` - Create vendor profile
 - `GET /api/v1/vendors/` - Get all vendors
 - `GET /api/v1/vendors/me` - Get my vendor profile
@@ -165,6 +206,7 @@ Once the server is running, you can access:
 - `POST /api/v1/vendors/me/services` - Create vendor service
 
 ### Games
+
 - `POST /api/v1/games/` - Create game
 - `GET /api/v1/games/sport-group/{group_id}` - Get group games
 - `GET /api/v1/games/{game_id}` - Get game by ID
@@ -172,6 +214,7 @@ Once the server is running, you can access:
 - `POST /api/v1/games/{game_id}/score` - Update team score
 
 ### Chat
+
 - `GET /api/v1/chat/rooms/{room_id}` - Get chat room
 - `GET /api/v1/chat/rooms/{room_id}/messages` - Get chat messages
 - `POST /api/v1/chat/rooms/{room_id}/messages` - Send message
@@ -230,7 +273,7 @@ flake8 app/
 ### Docker
 
 ```dockerfile
-FROM python:3.9
+FROM python:3.12
 
 WORKDIR /app
 
@@ -264,3 +307,50 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ## License
 
 This project is licensed under the MIT License.
+
+## Running with Docker Compose
+
+### 1. Build and Start All Services
+
+```
+docker-compose up --build
+```
+
+This will start the backend, PostgreSQL, MongoDB, and Redis containers. The FastAPI app will be available at `http://localhost:8000`.
+
+### 2. Stopping the Services
+
+```
+docker-compose down
+```
+
+### 3. Rebuilding After Code Changes
+
+```
+docker-compose up --build
+```
+
+### 4. Running Only the Backend (if you have your own DBs running)
+
+```
+docker build -t turnupspot_backend .
+docker run -p 8000:8000 --env-file .env turnupspot_backend
+```
+
+Make sure to set the correct environment variables for database and service connections.
+
+---
+
+## API Highlights
+
+- `/api/v1/sport-groups/{group_id}/invite/qr`: Get QR code for group invite
+- `/api/v1/sport-groups/{group_id}/form-teams`: Form teams (first-come/random)
+- `/api/v1/sport-groups/{group_id}/tournament`: Create tournament
+- `/api/v1/sport-groups/{group_id}/tournament/result`: Add tournament result
+- `/api/v1/sport-groups/{group_id}/tournament/results`: Get tournament results
+- `/api/v1/sport-groups/stats/submit`: Submit stat for approval
+- `/api/v1/sport-groups/stats/pending`: List pending stats
+- `/api/v1/sport-groups/stats/approve/{stat_idx}`: Approve stat
+- `/api/v1/sport-groups/stats/reject/{stat_idx}`: Reject stat
+
+See the OpenAPI docs at `/docs` for full API details.

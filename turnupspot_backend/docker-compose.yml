@@ -1,0 +1,47 @@
+version: "3.8"
+services:
+  backend:
+    build: .
+    container_name: turnupspot_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:1234@db:5432/turnupspot
+      - MONGODB_URI=mongodb://mongo:27017
+      - MONGODB_DB_NAME=turnupspot
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - mongo
+      - redis
+    volumes:
+      - .:/app
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: turnupspot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  mongo:
+    image: mongo:6
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+  redis:
+    image: redis:7
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:

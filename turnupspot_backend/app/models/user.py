@@ -32,7 +32,11 @@ class User(Base):
 
     # Relationships
     sport_group_memberships = relationship("SportGroupMember", back_populates="user")
-    created_sport_groups = relationship("SportGroup", back_populates="creator")
+    created_sport_groups = relationship(
+        "SportGroup",
+        back_populates="creator",
+        foreign_keys="SportGroup.creator_id"
+    )
     event_attendances = relationship("EventAttendee", back_populates="user")
     created_events = relationship("Event", back_populates="creator")
     vendor_profile = relationship("Vendor", back_populates="user", uselist=False)

@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { post } from "../api";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 const VendorSignupPage = () => {
   const [formData, setFormData] = useState({
@@ -13,11 +15,12 @@ const VendorSignupPage = () => {
     businessType: "",
     description: "",
   });
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
-      alert("Passwords do not match");
+      toast.error("Passwords do not match");
       return;
     }
     try {
@@ -50,19 +53,20 @@ const VendorSignupPage = () => {
       await post("/vendors/", vendorPayload, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      alert("Vendor registration successful! You can now log in.");
-      // Optionally redirect to login or dashboard
+      toast.success("Vendor registration successful! You can now log in.");
+      setTimeout(() => navigate("/signin"), 1500);
     } catch (error: any) {
       if (error.response && error.response.data && error.response.data.detail) {
-        alert(`Registration failed: ${error.response.data.detail}`);
+        toast.error(`Registration failed: ${error.response.data.detail}`);
       } else {
-        alert("Registration failed. Please try again.");
+        toast.error("Registration failed. Please try again.");
       }
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <ToastContainer />
       <div className="max-w-4xl mx-auto">
         <Link
           to="/signup"

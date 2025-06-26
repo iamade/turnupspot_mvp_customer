@@ -80,6 +80,7 @@ class SportGroup(Base):
     teams = relationship("Team", back_populates="sport_group")
     members = relationship("SportGroupMember", back_populates="sport_group")
     games = relationship("Game", back_populates="sport_group")
+    chat_room = relationship("ChatRoom", back_populates="sport_group", uselist=False)
 
     def __repr__(self):
         return f"<SportGroup(id={self.id}, name='{self.name}', sport='{self.sports_type}')>"
@@ -89,7 +90,7 @@ class SportGroupMember(Base):
     __tablename__ = "sport_group_members"
 
     id = Column(Integer, primary_key=True, index=True)
-    sport_group_id = Column(Integer, ForeignKey("sport_groups.id"), nullable=False)
+    sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role = Column(Enum(MemberRole), default=MemberRole.MEMBER)
     is_approved = Column(Boolean, default=False)

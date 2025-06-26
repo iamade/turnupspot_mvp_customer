@@ -4,6 +4,7 @@ from app.schemas.event import EventCreate, EventUpdate, EventResponse
 from app.schemas.vendor import VendorCreate, VendorUpdate, VendorResponse
 from app.schemas.game import GameCreate, GameUpdate, GameResponse
 from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
+from app.schemas.sport import SportCreate, SportUpdate, SportResponse
 from .superadmin import *
 
 __all__ = [

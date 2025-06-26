@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { post } from "../api";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 const UserSignupPage = () => {
   const [formData, setFormData] = useState({
@@ -14,15 +16,16 @@ const UserSignupPage = () => {
     dateOfBirth: "",
     interests: [] as string[],
   });
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
-      alert("Passwords do not match");
+      toast.error("Passwords do not match");
       return;
     }
     if (formData.password.length < 8) {
-      alert("Password must be at least 8 characters long");
+      toast.error("Password must be at least 8 characters long");
       return;
     }
     try {
@@ -39,13 +42,13 @@ const UserSignupPage = () => {
         role: "user",
       };
       await post("/auth/register", payload);
-      alert("Registration successful! Please sign in.");
-      // Optionally redirect to sign in page
+      toast.success("Registration successful! Please sign in.");
+      setTimeout(() => navigate("/signin"), 1500);
     } catch (error: any) {
       if (error.response && error.response.data && error.response.data.detail) {
-        alert(`Registration failed: ${error.response.data.detail}`);
+        toast.error(`Registration failed: ${error.response.data.detail}`);
       } else {
-        alert("Registration failed. Please try again.");
+        toast.error("Registration failed. Please try again.");
       }
     }
   };
@@ -72,6 +75,7 @@ const UserSignupPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <ToastContainer />
       <div className="max-w-4xl mx-auto">
         <Link
           to="/signup"

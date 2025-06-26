@@ -41,6 +41,13 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
 volumes:
   postgres_data:
   mongo_data:

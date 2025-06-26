@@ -1,25 +1,48 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Github, Mail } from 'lucide-react';
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Github, Mail } from "lucide-react";
+import { post } from "../api";
+import { useAuth } from "../contexts/AuthContext";
+import { toast, ToastContainer } from "react-toastify";
 
 const SigninPage = () => {
   const navigate = useNavigate();
+  const { setToken } = useAuth();
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
+    email: "",
+    password: "",
     rememberMe: false,
   });
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission
-    navigate('/home');
+    setLoading(true);
+    try {
+      const res = await post<{ access_token: string; token_type: string }>(
+        "/auth/login",
+        { email: formData.email, password: formData.password }
+      );
+      setToken(res.data.access_token);
+      toast.success("Signed in successfully!");
+      setTimeout(() => navigate("/home"), 1000);
+    } catch (error: any) {
+      toast.error(
+        error.response?.data?.detail || "Sign in failed. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <ToastContainer />
       <div className="max-w-md mx-auto">
-        <Link to="/" className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-8">
+        <Link
+          to="/"
+          className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-8"
+        >
           <ArrowLeft className="w-5 h-5 mr-2" />
           Back to Home
         </Link>
@@ -27,7 +50,9 @@ const SigninPage = () => {
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900">Welcome Back</h1>
-            <p className="text-gray-600 mt-2">Sign in to your Turnup Spot account</p>
+            <p className="text-gray-600 mt-2">
+              Sign in to your Turnup Spot account
+            </p>
           </div>
 
           <div className="space-y-4 mb-8">
@@ -52,34 +77,46 @@ const SigninPage = () => {
               <div className="w-full border-t border-gray-300"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or continue with</span>
+              <span className="px-2 bg-white text-gray-500">
+                Or continue with
+              </span>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Email Address
               </label>
               <input
                 type="email"
                 id="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 required
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Password
               </label>
               <input
                 type="password"
                 id="password"
                 value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 required
               />
@@ -90,12 +127,17 @@ const SigninPage = () => {
                 <input
                   type="checkbox"
                   checked={formData.rememberMe}
-                  onChange={(e) => setFormData({ ...formData, rememberMe: e.target.checked })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, rememberMe: e.target.checked })
+                  }
                   className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                 />
                 <span className="ml-2 text-sm text-gray-600">Remember me</span>
               </label>
-              <Link to="/forgot-password" className="text-sm text-indigo-600 hover:text-indigo-500">
+              <Link
+                to="/forgot-password"
+                className="text-sm text-indigo-600 hover:text-indigo-500"
+              >
                 Forgot password?
               </Link>
             </div>
@@ -103,14 +145,18 @@ const SigninPage = () => {
             <button
               type="submit"
               className="w-full bg-indigo-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+              disabled={loading}
             >
-              Sign In
+              {loading ? "Signing In..." : "Sign In"}
             </button>
 
             <div className="text-center">
               <p className="text-sm text-gray-600">
-                Don't have an account?{' '}
-                <Link to="/signup" className="text-indigo-600 hover:text-indigo-500 font-medium">
+                Don't have an account?{" "}
+                <Link
+                  to="/signup"
+                  className="text-indigo-600 hover:text-indigo-500 font-medium"
+                >
                   Sign up
                 </Link>
               </p>

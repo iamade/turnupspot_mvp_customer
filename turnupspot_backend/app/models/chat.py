@@ -27,7 +27,7 @@ class ChatRoom(Base):
     room_type = Column(Enum(ChatRoomType), nullable=False)
     
     # Related entity IDs
-    sport_group_id = Column(Integer, ForeignKey("sport_groups.id"), nullable=True)
+    sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=True)
     event_id = Column(Integer, ForeignKey("events.id"), nullable=True)
     
     # Room settings

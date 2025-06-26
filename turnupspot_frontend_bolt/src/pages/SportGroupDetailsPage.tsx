@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { get } from "../api";
 import {
   Users,
   Calendar,
@@ -8,70 +9,30 @@ import {
   ArrowLeft,
 } from "lucide-react";
 
-const groupData = {
-  "1": {
-    name: "Weekend Warriors FC",
-    description: "5-a-side football group for casual players",
-    members: 24,
-    nextGame: "Saturday, 2PM",
-    venue: "Central Park",
-    image:
-      "https://images.pexels.com/photos/399187/pexels-photo-399187.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
-  },
-  "2": {
-    name: "Livingston Hub Guys",
-    description: "Join us for weekly games",
-    members: 60,
-    nextGame: "Wednesday, 6:30PM",
-    venue: "1248 Livingston Way NE, Calgary, AB T3P 0V9",
-    image:
-      "https://images.pexels.com/photos/114296/pexels-photo-114296.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
-  },
-  "3": {
-    name: "Ontario field group",
-    description: "Weekly football matches at Ontario Field",
-    members: 32,
-    nextGame: "Friday, 7PM",
-    venue: "Ontario Field Sports Complex",
-    image:
-      "https://images.pexels.com/photos/47730/the-ball-stadion-football-the-pitch-47730.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
-  },
-  "4": {
-    name: "Downtown street soccer",
-    description: "Casual soccer matches, all skill levels welcome",
-    members: 45,
-    nextGame: "Monday, 6PM",
-    venue: "Downtown Community Field",
-    image:
-      "https://images.pexels.com/photos/274506/pexels-photo-274506.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
-  },
-  "5": {
-    name: "East Side football gang",
-    description: "Playtime Weekend rides",
-    members: 121,
-    nextGame: "Sunday, 4PM",
-    venue: "East Side Park",
-    image:
-      "https://images.pexels.com/photos/3448250/pexels-photo-3448250.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
-  },
-};
-
 const SportGroupDetailsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const group = id ? groupData[id as keyof typeof groupData] : null;
+  const [group, setGroup] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleLeaveGroup = () => {
-    console.log(`Leaving group ${id}`);
-    navigate("/sports");
-  };
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    get(`/sport-groups/${id}`)
+      .then((res) => setGroup(res.data))
+      .catch(() => setError("Group not found"))
+      .finally(() => setLoading(false));
+  }, [id]);
 
-  if (!group) {
+  if (loading) return <div className="text-center py-12">Loading...</div>;
+
+  if (error || !group) {
     return (
       <div className="text-center py-12">
         <h2 className="text-2xl font-bold text-gray-900">Group not found</h2>
         <Link
-          to="/sports"
+          to="/sports/groups"
           className="text-indigo-600 hover:text-indigo-800 mt-4 inline-block"
         >
           Return to Sports Groups
@@ -80,7 +41,7 @@ const SportGroupDetailsPage: React.FC = () => {
     );
   }
 
-  // Mock previous games data
+  // Mock previous games data (optional, or fetch from backend if available)
   const previousGames = [
     {
       id: 1,
@@ -105,26 +66,20 @@ const SportGroupDetailsPage: React.FC = () => {
   return (
     <div className="space-y-8 max-w-2xl mx-auto px-4">
       <Link
-        to="/sports"
+        to="/sports/groups"
         className="inline-flex items-center text-gray-600 hover:text-gray-900"
       >
         <ArrowLeft className="w-5 h-5 mr-2" />
-        Back to Sports
+        Back to Sports Groups
       </Link>
-
-      <div className="flex justify-end mb-4">
-        <button
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          onClick={() => navigate("/sports/select")}
-        >
-          Create Group
-        </button>
-      </div>
 
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <div className="h-48 relative">
           <img
-            src={group.image}
+            src={
+              group.venue_image_url ||
+              "https://images.pexels.com/photos/399187/pexels-photo-399187.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
+            }
             alt={group.name}
             className="w-full h-full object-cover"
           />
@@ -137,7 +92,7 @@ const SportGroupDetailsPage: React.FC = () => {
               <h1 className="text-3xl font-bold">{group.name}</h1>
               <p className="text-gray-600 mt-2">{group.description}</p>
               <p className="text-gray-500 mt-1">
-                <span className="font-medium">Venue:</span> {group.venue}
+                <span className="font-medium">Venue:</span> {group.venue_name}
               </p>
             </div>
             <div className="space-x-4">
@@ -148,7 +103,7 @@ const SportGroupDetailsPage: React.FC = () => {
                 Join Group
               </button>
               <button
-                onClick={handleLeaveGroup}
+                onClick={() => navigate("/my-sports-groups")}
                 className="px-4 py-2 border border-red-500 text-red-500 rounded-lg hover:bg-red-50"
               >
                 Leave Group
@@ -163,7 +118,9 @@ const SportGroupDetailsPage: React.FC = () => {
             >
               <Users className="text-purple-600 mb-2" />
               <h3 className="font-semibold">Members</h3>
-              <p className="text-purple-600">{group.members} players</p>
+              <p className="text-purple-600">
+                {group.member_count || 0} players
+              </p>
             </Link>
 
             {isGameDay ? (
@@ -210,7 +167,7 @@ const SportGroupDetailsPage: React.FC = () => {
                 <div className="flex justify-between items-center">
                   <div>
                     <h3 className="font-semibold">Regular 5-a-side</h3>
-                    <p className="text-gray-600">{group.nextGame}</p>
+                    <p className="text-gray-600">Saturday, 2PM</p>
                   </div>
                   <button className="px-3 py-1 border border-purple-600 text-purple-600 rounded hover:bg-purple-50">
                     RSVP

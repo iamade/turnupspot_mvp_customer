@@ -20,7 +20,7 @@ const Home = () => {
             Create Event
           </Link>
           <Link
-            to="/sports/select"
+            to="/sports/groups"
             className="bg-indigo-500 text-white px-8 py-3 rounded-lg font-bold hover:bg-indigo-400"
           >
             Join Sports Group
@@ -51,7 +51,7 @@ const Home = () => {
             Organize sports activities, manage teams, and track statistics.
           </p>
           <Link
-            to="/sports"
+            to="/my-sports-groups"
             className="text-indigo-600 font-medium hover:text-indigo-800"
           >
             Your Sports Groups →

@@ -27,6 +27,22 @@ from app.services.stats import submit_stat, approve_stat, reject_stat, get_pendi
 router = APIRouter()
 
 
+@router.get("/my", response_model=List[SportGroupResponse])
+def get_my_sport_groups(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Groups created by user
+    created = db.query(SportGroup).filter(SportGroup.created_by == current_user.email)
+    # Groups where user is a member
+    member = db.query(SportGroup).join(SportGroupMember).filter(SportGroupMember.user_id == current_user.id)
+    # Union and remove duplicates
+    groups = {g.id: g for g in created.all()}
+    for g in member.all():
+        groups[g.id] = g
+    return list(groups.values())
+
+
 @router.post("/", response_model=SportGroupResponse)
 async def create_sport_group(
     name: str = Form(...),
@@ -121,7 +137,7 @@ def get_sport_groups(
     sport_type: Optional[SportsType] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    # current_user: Optional[User] = Depends(get_current_user)  # Removed for public access
 ):
     """Get all sport groups with optional filtering"""
     query = db.query(SportGroup).filter(SportGroup.is_active == True)

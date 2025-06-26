@@ -19,6 +19,8 @@ import UserSignupPage from "./pages/UserSignupPage";
 import SigninPage from "./pages/SigninPage";
 import GroupChatPage from "./pages/GroupChatPage";
 import ProfilePage from "./pages/ProfilePage";
+import MySportsGroupsPage from "./pages/MySportsGroupsPage";
+import AllSportsGroupsPage from "./pages/AllSportsGroupsPage";
 import { AuthProvider } from "./contexts/AuthContext";
 
 function App() {
@@ -60,6 +62,8 @@ function App() {
             <Route path="/signup/user" element={<UserSignupPage />} />
             <Route path="/signin" element={<SigninPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/my-sports-groups" element={<MySportsGroupsPage />} />
+            <Route path="/sports/groups" element={<AllSportsGroupsPage />} />
           </Routes>
         </MainLayout>
       </AuthProvider>

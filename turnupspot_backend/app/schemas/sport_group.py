@@ -72,7 +72,7 @@ class SportGroupResponse(SportGroupBase):
     created_by: str
     is_active: bool = True
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -24,7 +24,7 @@ class Game(Base):
     __tablename__ = "games"
 
     id = Column(Integer, primary_key=True, index=True)
-    sport_group_id = Column(Integer, ForeignKey("sport_groups.id"), nullable=False)
+    sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
     
     # Game details
     game_date = Column(DateTime, nullable=False)

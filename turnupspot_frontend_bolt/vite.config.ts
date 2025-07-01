@@ -8,12 +8,6 @@ export default defineConfig({
     exclude: ["lucide-react"],
   },
   server: {
-    proxy: {
-      "/api": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-        secure: false,
-      },
-    },
+    // Proxy removed to force direct API calls to backend
   },
 });

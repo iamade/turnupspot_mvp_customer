@@ -1,9 +1,22 @@
-export type Sport = 'Football' | 'Basketball' | 'Tennis' | 'AmericanFootball';
+export interface Sport {
+  id: number;
+  name: string;
+  type: "Team" | "Individual";
+  max_players_per_team?: number;
+  min_teams?: number;
+  players_per_match?: number;
+  requires_referee: boolean;
+  rules?: any;
+  is_default: boolean;
+  created_by?: number;
+  created_at: string;
+  updated_at?: string;
+}
 
 export interface SportGroup {
   id: string;
   name: string;
-  sport: Sport;
+  sport: string; // Keep as string for now, can be updated later
   description: string;
   location: string;
   venueImage: string;
@@ -18,7 +31,7 @@ export interface Member {
   id: string;
   userId: string;
   name: string;
-  role: 'admin' | 'member';
+  role: "admin" | "member";
   joinedAt: string;
 }
 
@@ -31,7 +44,7 @@ export interface PlayingDate {
   teams: Team[];
   referee?: Member;
   assistantReferee?: Member;
-  status: 'scheduled' | 'in-progress' | 'completed';
+  status: "scheduled" | "in-progress" | "completed";
 }
 
 export interface Team {

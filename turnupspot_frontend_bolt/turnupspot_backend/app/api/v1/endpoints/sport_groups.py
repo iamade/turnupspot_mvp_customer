@@ -1,10 +1,12 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 import uuid
 from io import BytesIO
 from fastapi.responses import StreamingResponse
+import os
+from datetime import datetime
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -25,28 +27,100 @@ from app.services.stats import submit_stat, approve_stat, reject_stat, get_pendi
 router = APIRouter()
 
 
-@router.post("/", response_model=SportGroupResponse)
-def create_sport_group(
-    sport_group: SportGroupCreate,
+@router.get("/my", response_model=List[SportGroupResponse])
+def get_my_sport_groups(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a new sport group"""
-    # Get coordinates from Google Maps
-    latitude, longitude = geocoding_service.get_coordinates(sport_group.venue_address)
-    if not latitude or not longitude:
+    # Groups created by user
+    created = db.query(SportGroup).filter(SportGroup.created_by == current_user.email)
+    # Groups where user is a member
+    member = db.query(SportGroup).join(SportGroupMember).filter(SportGroupMember.user_id == current_user.id)
+    # Union and remove duplicates
+    groups = {g.id: g for g in created.all()}
+    for g in member.all():
+        groups[g.id] = g
+    return list(groups.values())
+
+
+@router.post("/", response_model=SportGroupResponse)
+async def create_sport_group(
+    name: str = Form(...),
+    description: str = Form(...),
+    venue_name: str = Form(...),
+    venue_address: str = Form(...),
+    venue_latitude: float = Form(...),
+    venue_longitude: float = Form(...),
+    playing_days: str = Form(...),
+    game_start_time: str = Form(...),
+    game_end_time: str = Form(...),
+    max_teams: int = Form(...),
+    max_players_per_team: int = Form(...),
+    rules: Optional[str] = Form(None),
+    referee_required: bool = Form(False),
+    sports_type: str = Form(...),
+    venue_image: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new sport group with file upload support"""
+    
+    # Validate coordinates
+    if not venue_latitude or not venue_longitude:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not geocode the venue address"
+            detail="Latitude and longitude are required"
+        )
+    
+    # Handle venue image upload
+    venue_image_url = None
+    if venue_image:
+        # Create uploads directory if it doesn't exist
+        upload_dir = "static/uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename
+        file_extension = os.path.splitext(venue_image.filename)[1] if venue_image.filename else '.jpg'
+        filename = f"venue_{uuid.uuid4()}{file_extension}"
+        file_path = os.path.join(upload_dir, filename)
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            content = await venue_image.read()
+            buffer.write(content)
+        
+        venue_image_url = f"/static/uploads/{filename}"
+    
+    # Parse game times
+    try:
+        game_start_datetime = datetime.strptime(game_start_time, "%H:%M")
+        game_end_datetime = datetime.strptime(game_end_time, "%H:%M")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid time format. Use HH:MM format"
         )
     
     # Create new sport group
     db_sport_group = SportGroup(
         id=str(uuid.uuid4()),
-        **sport_group.dict(),
-        venue_latitude=latitude,
-        venue_longitude=longitude,
-        created_by=current_user.email
+        name=name,
+        description=description,
+        venue_name=venue_name,
+        venue_address=venue_address,
+        venue_latitude=venue_latitude,
+        venue_longitude=venue_longitude,
+        venue_image_url=venue_image_url,
+        playing_days=playing_days,
+        game_start_time=game_start_datetime,
+        game_end_time=game_end_datetime,
+        max_teams=max_teams,
+        max_players_per_team=max_players_per_team,
+        rules=rules,
+        referee_required=referee_required,
+        sports_type=SportsType(sports_type),
+        created_by=current_user.email,
+        creator_id=current_user.id
     )
     
     db.add(db_sport_group)
@@ -63,7 +137,7 @@ def get_sport_groups(
     sport_type: Optional[SportsType] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    # current_user: Optional[User] = Depends(get_current_user)  # Removed for public access
 ):
     """Get all sport groups with optional filtering"""
     query = db.query(SportGroup).filter(SportGroup.is_active == True)

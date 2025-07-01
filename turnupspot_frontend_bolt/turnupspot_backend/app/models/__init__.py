@@ -4,6 +4,7 @@ from app.models.event import Event, EventAttendee
 from app.models.vendor import Vendor, VendorService
 from app.models.game import Game, GameTeam, GamePlayer
 from app.models.chat import ChatRoom, ChatMessage
+from app.models.sport import Sport
 
 __all__ = [
     "User",

@@ -1,30 +1,30 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 
 const api = axios.create({
-  baseURL: "/api/v1", // Adjust this if your backend is served from a different base path
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1",
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-export const get = <T = any>(
+export const get = <T = unknown>(
   url: string,
   config?: AxiosRequestConfig
 ): Promise<AxiosResponse<T>> => api.get<T>(url, config);
 
-export const post = <T = any>(
+export const post = <T = unknown>(
   url: string,
-  data?: any,
+  data?: unknown,
   config?: AxiosRequestConfig
 ): Promise<AxiosResponse<T>> => api.post<T>(url, data, config);
 
-export const put = <T = any>(
+export const put = <T = unknown>(
   url: string,
-  data?: any,
+  data?: unknown,
   config?: AxiosRequestConfig
 ): Promise<AxiosResponse<T>> => api.put<T>(url, data, config);
 
-export const del = <T = any>(
+export const del = <T = unknown>(
   url: string,
   config?: AxiosRequestConfig
 ): Promise<AxiosResponse<T>> => api.delete<T>(url, config);

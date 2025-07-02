@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Trash2, ArrowLeft, UserPlus, Check, X } from "lucide-react";
+import { Trash2, ArrowLeft, UserPlus, Check, X, Shield } from "lucide-react";
 import { get, del, post } from "../api";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "react-toastify";
@@ -28,7 +28,7 @@ interface PendingMember {
 
 const MyGroupMembersPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { token } = useAuth();
+  const { user, token } = useAuth();
   const navigate = useNavigate();
   const [members, setMembers] = useState<Member[]>([]);
   const [pendingMembers, setPendingMembers] = useState<PendingMember[]>([]);
@@ -126,6 +126,38 @@ const MyGroupMembersPage: React.FC = () => {
     }
   };
 
+  const handleLeave = async (memberId: number) => {
+    if (!id || !token) return;
+    try {
+      await del(`/sport-groups/${id}/members/${memberId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMembers((prev) => prev.filter((m) => m.id !== memberId));
+      toast.success("Left the group successfully");
+    } catch {
+      toast.error("Failed to leave the group");
+    }
+  };
+
+  const handleMakeAdmin = async (memberId: number) => {
+    if (!id || !token) return;
+    try {
+      await post(
+        `/sport-groups/${id}/members/${memberId}/make-admin`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, role: "admin" } : m))
+      );
+      toast.success("Member promoted to admin");
+    } catch {
+      toast.error("Failed to promote member to admin");
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
@@ -162,20 +194,25 @@ const MyGroupMembersPage: React.FC = () => {
                     Requested: {member.joined_at.slice(0, 10)}
                   </p>
                 </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleApproveRequest(member.id)}
-                    className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
-                  >
-                    <Check size={20} />
-                  </button>
-                  <button
-                    onClick={() => handleRejectRequest(member.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
+                {user &&
+                  members.find(
+                    (m) => m.user.email === user.email && m.role === "admin"
+                  ) && (
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleApproveRequest(member.id)}
+                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                      >
+                        <Check size={20} />
+                      </button>
+                      <button
+                        onClick={() => handleRejectRequest(member.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+                  )}
               </div>
             ))}
             {pendingMembers.length === 0 && (
@@ -208,6 +245,20 @@ const MyGroupMembersPage: React.FC = () => {
                     )}
                   </div>
                   <div className="flex items-center space-x-2">
+                    {user &&
+                      members.find(
+                        (m) => m.user.email === user.email && m.role === "admin"
+                      ) &&
+                      member.role !== "admin" &&
+                      member.user.email !== user.email && (
+                        <button
+                          onClick={() => handleMakeAdmin(member.id)}
+                          className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg"
+                          title="Make Admin"
+                        >
+                          <Shield size={20} />
+                        </button>
+                      )}
                     <button
                       onClick={() => handleRemoveMember(member.id)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
@@ -222,12 +273,28 @@ const MyGroupMembersPage: React.FC = () => {
           )}
         </div>
         <div className="flex justify-center pt-8">
-          <button
-            onClick={handleDeleteGroup}
-            className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700"
-          >
-            Delete Group
-          </button>
+          {user &&
+          members.find(
+            (m) => m.user.email === user.email && m.role === "admin"
+          ) ? (
+            <button
+              onClick={handleDeleteGroup}
+              className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700"
+            >
+              Delete Group
+            </button>
+          ) : user && members.find((m) => m.user.email === user.email) ? (
+            <button
+              onClick={() =>
+                handleLeave(
+                  members.find((m) => m.user.email === user.email)!.id
+                )
+              }
+              className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700"
+            >
+              Leave Group
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

@@ -40,6 +40,9 @@ def get_my_sport_groups(
     groups = {g.id: g for g in created.all()}
     for g in member.all():
         groups[g.id] = g
+    # Add member count to each group
+    for group in groups.values():
+        group.member_count = len([m for m in group.members if m.is_approved])
     return list(groups.values())
 
 
@@ -289,7 +292,7 @@ def delete_sport_group(
 
 @router.post("/{group_id}/join")
 def join_sport_group(
-    group_id: int,
+    group_id: str,
     join_request: SportGroupJoinRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -338,7 +341,7 @@ def join_sport_group(
 
 @router.post("/{group_id}/leave")
 def leave_sport_group(
-    group_id: int,
+    group_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -404,7 +407,7 @@ def get_group_members(
 
 @router.post("/{group_id}/members/{member_id}/approve")
 def approve_member(
-    group_id: int,
+    group_id: str,
     member_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -444,7 +447,7 @@ def approve_member(
 
 @router.delete("/{group_id}/members/{member_id}")
 def remove_member(
-    group_id: int,
+    group_id: str,
     member_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)

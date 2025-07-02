@@ -23,6 +23,7 @@ import MySportsGroupsPage from "./pages/MySportsGroupsPage";
 import AllSportsGroupsPage from "./pages/AllSportsGroupsPage";
 import MySportGroupDetailsPage from "./pages/MySportGroupDetailsPage";
 import MyGroupMembersPage from "./pages/MyGroupMembersPage";
+import MyGroupJoinPage from "./pages/MyGroupJoinPage";
 import { AuthProvider } from "./contexts/AuthContext";
 
 function App() {
@@ -77,6 +78,10 @@ function App() {
             <Route
               path="/my-sports-groups/:id/invite"
               element={<InviteMemberPage />}
+            />
+            <Route
+              path="/my-sports-groups/:id/join"
+              element={<MyGroupJoinPage />}
             />
           </Routes>
         </MainLayout>

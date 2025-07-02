@@ -37,7 +37,7 @@ interface SportGroup {
 
 const SportGroupDetailsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const navigate = useNavigate();
   const [group, setGroup] = useState<SportGroup | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,20 +48,29 @@ const SportGroupDetailsPage: React.FC = () => {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    get(`/sport-groups/${id}`)
+    get(
+      `/sport-groups/${id}`,
+      token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+    )
       .then((res) => setGroup(res.data as SportGroup))
       .catch(() => setError("Group not found"))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, token]);
 
   const handleJoinGroup = async () => {
-    if (!id || !user) return;
+    if (!id || !user || !token) return;
     setJoining(true);
     try {
-      await post(`/sport-groups/${id}/join`, {});
+      await post(
+        `/sport-groups/${id}/join`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       toast.success("Join request submitted successfully!");
       // Refresh group data to update membership status
-      const res = await get(`/sport-groups/${id}`);
+      const res = await get(`/sport-groups/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setGroup(res.data as SportGroup);
     } catch (error: unknown) {
       const errorMessage =
@@ -73,13 +82,19 @@ const SportGroupDetailsPage: React.FC = () => {
   };
 
   const handleLeaveGroup = async () => {
-    if (!id || !user) return;
+    if (!id || !user || !token) return;
     setLeaving(true);
     try {
-      await post(`/sport-groups/${id}/leave`, {});
+      await post(
+        `/sport-groups/${id}/leave`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       toast.success("Left group successfully!");
       // Refresh group data to update membership status
-      const res = await get(`/sport-groups/${id}`);
+      const res = await get(`/sport-groups/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setGroup(res.data as SportGroup);
     } catch (error: unknown) {
       const errorMessage =
@@ -182,27 +197,43 @@ const SportGroupDetailsPage: React.FC = () => {
             <div className="space-x-4">
               {group?.current_user_membership?.is_member ? (
                 <>
-                  <button
-                    onClick={handleLeaveGroup}
-                    disabled={
-                      leaving || group.current_user_membership.is_creator
-                    }
-                    className="px-4 py-2 border border-red-500 text-red-500 rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {leaving ? "Leaving..." : "Leave Group"}
-                  </button>
-                  {group.current_user_membership.role === "admin" && (
+                  {group.current_user_membership.role !== "admin" && (
                     <button
-                      onClick={handleDeleteGroup}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2"
+                      onClick={handleLeaveGroup}
+                      disabled={
+                        leaving || group.current_user_membership.is_creator
+                      }
+                      className="px-4 py-2 border border-red-500 text-red-500 rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Delete Group
+                      {leaving ? "Leaving..." : "Leave Group"}
                     </button>
                   )}
+                  {group.current_user_membership.role !== "admin" &&
+                    group.current_user_membership.is_creator && (
+                      <button
+                        onClick={handleDeleteGroup}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2"
+                      >
+                        Delete Group
+                      </button>
+                    )}
                 </>
+              ) : group?.current_user_membership?.is_pending ? (
+                <button
+                  disabled
+                  className="px-4 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed"
+                >
+                  Request Pending
+                </button>
               ) : (
                 <button
-                  onClick={handleJoinGroup}
+                  onClick={() => {
+                    if (!user) {
+                      navigate("/signin");
+                    } else {
+                      handleJoinGroup();
+                    }
+                  }}
                   disabled={joining}
                   className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
                 >

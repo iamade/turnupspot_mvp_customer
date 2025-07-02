@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { get, post } from "../api";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "react-toastify";
+import { MapPin, Users, Calendar } from "lucide-react";
 
 interface SportGroup {
   id: string;
@@ -19,6 +20,7 @@ interface SportGroup {
   rules?: string;
   referee_required: boolean;
   sports_type: string;
+  member_count?: number;
 }
 
 const MySportsGroupsPage: React.FC = () => {
@@ -86,25 +88,41 @@ const MySportsGroupsPage: React.FC = () => {
             key={group.id}
             className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow cursor-pointer relative"
           >
-            <img
-              src={
-                group.venue_image_url ||
-                "https://images.pexels.com/photos/399187/pexels-photo-399187.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
-              }
-              alt={group.name}
-              className="w-full h-40 object-cover"
-              onClick={() => navigate(`/my-sports-groups/${group.id}`)}
-            />
+            <div className="relative">
+              <img
+                src={
+                  group.venue_image_url ||
+                  "https://images.pexels.com/photos/399187/pexels-photo-399187.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
+                }
+                alt={group.name}
+                className="w-full h-40 object-cover"
+                onClick={() => navigate(`/my-sports-groups/${group.id}`)}
+              />
+              <span className="absolute top-3 left-3 bg-purple-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow">
+                {group.sports_type}
+              </span>
+            </div>
             <div
               className="p-6"
               onClick={() => navigate(`/my-sports-groups/${group.id}`)}
             >
               <h2 className="text-xl font-bold mb-2">{group.name}</h2>
               <p className="text-gray-600 mb-2">{group.description}</p>
-              <div className="text-sm text-gray-500 mb-1">
-                <span className="font-medium">Venue:</span> {group.venue_name}
+              <div className="flex items-center text-sm text-gray-500 mb-1">
+                <MapPin className="w-4 h-4 mr-1" />
+                {group.venue_address}
               </div>
-              <div className="text-xs text-gray-400">{group.venue_address}</div>
+              <div className="flex items-center text-sm text-gray-500 mb-1">
+                <Users className="w-4 h-4 mr-1" />
+                {group.member_count || 0} members
+              </div>
+              <div className="flex items-center text-sm text-gray-500">
+                <Calendar className="w-4 h-4 mr-1" />
+                Next game: {group.playing_days},{" "}
+                {typeof group.game_start_time === "string"
+                  ? group.game_start_time.slice(0, 5)
+                  : ""}
+              </div>
             </div>
             <button
               className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 text-xs z-10"

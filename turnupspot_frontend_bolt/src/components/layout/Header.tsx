@@ -54,7 +54,10 @@ const Header = () => {
             <Link to="/events" className="text-gray-600 hover:text-gray-900">
               Events
             </Link>
-            <Link to="/sports" className="text-gray-600 hover:text-gray-900">
+            <Link
+              to="/sports/groups"
+              className="text-gray-600 hover:text-gray-900"
+            >
               Sports
             </Link>
             <Link to="/vendors" className="text-gray-600 hover:text-gray-900">
@@ -125,7 +128,7 @@ const Header = () => {
                 Events
               </Link>
               <Link
-                to="/sports"
+                to="/sports/groups"
                 className="px-4 py-2 text-gray-600 hover:bg-gray-50"
                 onClick={() => setIsMenuOpen(false)}
               >

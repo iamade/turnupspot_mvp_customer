@@ -17,6 +17,7 @@ interface SportGroup {
   rules?: string;
   referee_required: boolean;
   sports_type: string;
+  member_count?: number;
 }
 
 const AllSportsGroupsPage: React.FC = () => {
@@ -57,24 +58,92 @@ const AllSportsGroupsPage: React.FC = () => {
         {groups.map((group) => (
           <div
             key={group.id}
-            className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow cursor-pointer"
+            className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow cursor-pointer relative"
             onClick={() => navigate(`/sports/groups/${group.id}`)}
           >
-            <img
-              src={
-                group.venue_image_url ||
-                "https://images.pexels.com/photos/399187/pexels-photo-399187.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
-              }
-              alt={group.name}
-              className="w-full h-40 object-cover"
-            />
+            <div className="relative">
+              <img
+                src={
+                  group.venue_image_url ||
+                  "https://images.pexels.com/photos/399187/pexels-photo-399187.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
+                }
+                alt={group.name}
+                className="w-full h-40 object-cover"
+              />
+              <span className="absolute top-3 left-3 bg-purple-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow flex items-center gap-1">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4 mr-1"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6l2 4h4l-3 3 1 4-4-2-4 2 1-4-3-3h4z" />
+                </svg>
+                {group.sports_type}
+              </span>
+            </div>
             <div className="p-6">
               <h2 className="text-xl font-bold mb-2">{group.name}</h2>
               <p className="text-gray-600 mb-2">{group.description}</p>
-              <div className="text-sm text-gray-500 mb-1">
-                <span className="font-medium">Venue:</span> {group.venue_name}
+              <div className="flex items-center text-sm text-gray-500 mb-1">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="1.5"
+                  stroke="currentColor"
+                  className="w-4 h-4 mr-1"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-3A2.25 2.25 0 008.25 5.25V9m10.5 0v10.5a2.25 2.25 0 01-2.25 2.25H7.5a2.25 2.25 0 01-2.25-2.25V9m13.5 0h-15"
+                  />
+                </svg>
+                {group.venue_address}
               </div>
-              <div className="text-xs text-gray-400">{group.venue_address}</div>
+              <div className="flex items-center text-sm text-gray-500 mb-1">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="1.5"
+                  stroke="currentColor"
+                  className="w-4 h-4 mr-1"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0A5.978 5.978 0 0112 15c1.306 0 2.518.418 3.644 1.143M7.356 16.143A5.978 5.978 0 0112 15m0 0c1.306 0 2.518.418 3.644 1.143"
+                  />
+                </svg>
+                {group.member_count || 0} members
+              </div>
+              <div className="flex items-center text-sm text-gray-500">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="1.5"
+                  stroke="currentColor"
+                  className="w-4 h-4 mr-1"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 6v6l4 2"
+                  />
+                </svg>
+                Next game: {group.playing_days},{" "}
+                {typeof group.game_start_time === "string"
+                  ? group.game_start_time.slice(0, 5)
+                  : ""}
+              </div>
             </div>
           </div>
         ))}

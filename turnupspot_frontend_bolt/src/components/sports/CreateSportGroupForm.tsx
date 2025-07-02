@@ -250,7 +250,7 @@ const CreateSportGroupForm: React.FC = () => {
         },
       });
 
-      navigate("/sports");
+      navigate("/my-sports-groups");
     } catch (error) {
       console.error("Error creating sport group:", error);
       // TODO: Add proper error handling/toast notification

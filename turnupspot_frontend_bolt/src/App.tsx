@@ -21,6 +21,8 @@ import GroupChatPage from "./pages/GroupChatPage";
 import ProfilePage from "./pages/ProfilePage";
 import MySportsGroupsPage from "./pages/MySportsGroupsPage";
 import AllSportsGroupsPage from "./pages/AllSportsGroupsPage";
+import MySportGroupDetailsPage from "./pages/MySportGroupDetailsPage";
+import MyGroupMembersPage from "./pages/MyGroupMembersPage";
 import { AuthProvider } from "./contexts/AuthContext";
 
 function App() {
@@ -64,6 +66,18 @@ function App() {
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/my-sports-groups" element={<MySportsGroupsPage />} />
             <Route path="/sports/groups" element={<AllSportsGroupsPage />} />
+            <Route
+              path="/my-sports-groups/:id"
+              element={<MySportGroupDetailsPage />}
+            />
+            <Route
+              path="/my-sports-groups/:id/members"
+              element={<MyGroupMembersPage />}
+            />
+            <Route
+              path="/my-sports-groups/:id/invite"
+              element={<InviteMemberPage />}
+            />
           </Routes>
         </MainLayout>
       </AuthProvider>

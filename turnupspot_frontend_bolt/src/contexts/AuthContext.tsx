@@ -39,7 +39,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Fetch user profile with token
       get<User>("/users/me", { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => setUser(res.data))
-        .catch(() => setUser(null));
+        .catch(() => {
+          setUser(null);
+          setToken(null);
+          localStorage.removeItem("token");
+          navigate("/");
+        });
     } else {
       setUser(null);
     }

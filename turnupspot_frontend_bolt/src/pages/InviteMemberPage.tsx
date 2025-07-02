@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { Copy, Share2, Mail, MessageCircle } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { useParams, Link } from "react-router-dom";
+import { Copy, Share2, Mail, MessageCircle } from "lucide-react";
 
 const InviteMemberPage = () => {
   const { id } = useParams<{ id: string }>();
-  const [inviteLink, setInviteLink] = useState('');
+  const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     // Generate a unique invite link
-    setInviteLink(`${window.location.origin}/sports/groups/${id}/join`);
+    setInviteLink(`${window.location.origin}/my-sports-groups/${id}/join`);
   }, [id]);
 
   const handleCopyLink = async () => {
@@ -18,7 +18,7 @@ const InviteMemberPage = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      console.error("Failed to copy:", err);
     }
   };
 
@@ -26,25 +26,27 @@ const InviteMemberPage = () => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Join our sports group!',
-          text: 'Click the link to join our sports group on Turnup Spot',
+          title: "Join our sports group!",
+          text: "Click the link to join our sports group on Turnup Spot",
           url: inviteLink,
         });
       } catch (err) {
-        console.error('Share failed:', err);
+        console.error("Share failed:", err);
       }
     }
   };
 
   const handleEmailShare = () => {
-    const emailSubject = 'Join our sports group on Turnup Spot';
+    const emailSubject = "Join our sports group on Turnup Spot";
     const emailBody = `Join our sports group by clicking this link: ${inviteLink}`;
-    window.location.href = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(
+      emailSubject
+    )}&body=${encodeURIComponent(emailBody)}`;
   };
 
   const handleWhatsAppShare = () => {
     const text = `Join our sports group on Turnup Spot: ${inviteLink}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
 
   return (
@@ -52,7 +54,9 @@ const InviteMemberPage = () => {
       <div className="space-y-8">
         <div>
           <h1 className="text-2xl font-bold mb-2">Invite Members</h1>
-          <p className="text-gray-600">Share this link with people you want to invite to the group.</p>
+          <p className="text-gray-600">
+            Share this link with people you want to invite to the group.
+          </p>
         </div>
 
         {/* Invite Link Section */}
@@ -72,7 +76,7 @@ const InviteMemberPage = () => {
               className="flex items-center space-x-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
             >
               <Copy size={20} />
-              <span>{copied ? 'Copied!' : 'Copy'}</span>
+              <span>{copied ? "Copied!" : "Copy"}</span>
             </button>
           </div>
         </div>
@@ -107,7 +111,7 @@ const InviteMemberPage = () => {
 
         <div className="flex justify-end">
           <Link
-            to={`/sports/groups/${id}/members`}
+            to={`/my-sports-groups/${id}/members`}
             className="text-gray-600 hover:text-gray-900"
           >
             Back to Members

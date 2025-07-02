@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { get, del } from "../api";
+import { get, post } from "../api";
 import { useAuth } from "../contexts/AuthContext";
+import { toast } from "react-toastify";
 
 interface SportGroup {
   id: string;
@@ -27,8 +28,6 @@ const MySportsGroupsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -44,27 +43,18 @@ const MySportsGroupsPage: React.FC = () => {
       .finally(() => setLoading(false));
   }, [token, navigate]);
 
-  const openDeleteModal = (id: string) => {
-    setPendingDeleteId(id);
-    setModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setPendingDeleteId(null);
-  };
-
-  const handleDelete = async () => {
-    if (!pendingDeleteId) return;
-    setDeletingId(pendingDeleteId);
+  const handleLeave = async (id: string) => {
+    setDeletingId(id);
     try {
-      await del(`/sport-groups/${pendingDeleteId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setGroups((prev) => prev.filter((g) => g.id !== pendingDeleteId));
-      closeModal();
+      await post(
+        `/sport-groups/${id}/leave`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setGroups((prev) => prev.filter((g) => g.id !== id));
+      toast.success("Left group successfully!");
     } catch (e) {
-      alert("Failed to delete group.");
+      toast.error("Failed to leave group.");
     } finally {
       setDeletingId(null);
     }
@@ -103,11 +93,11 @@ const MySportsGroupsPage: React.FC = () => {
               }
               alt={group.name}
               className="w-full h-40 object-cover"
-              onClick={() => navigate(`/sports/groups/${group.id}`)}
+              onClick={() => navigate(`/my-sports-groups/${group.id}`)}
             />
             <div
               className="p-6"
-              onClick={() => navigate(`/sports/groups/${group.id}`)}
+              onClick={() => navigate(`/my-sports-groups/${group.id}`)}
             >
               <h2 className="text-xl font-bold mb-2">{group.name}</h2>
               <p className="text-gray-600 mb-2">{group.description}</p>
@@ -118,46 +108,14 @@ const MySportsGroupsPage: React.FC = () => {
             </div>
             <button
               className="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 text-xs z-10"
-              onClick={(e) => {
-                e.stopPropagation();
-                openDeleteModal(group.id);
-              }}
+              onClick={() => handleLeave(group.id)}
               disabled={deletingId === group.id}
             >
-              {deletingId === group.id ? "Deleting..." : "Delete"}
+              {deletingId === group.id ? "Leaving..." : "Leave Group"}
             </button>
           </div>
         ))}
       </div>
-
-      {/* Delete Confirmation Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-sm w-full">
-            <h2 className="text-xl font-bold mb-4 text-center">Delete Group</h2>
-            <p className="mb-6 text-center">
-              Are you sure you want to delete this group? This action cannot be
-              undone.
-            </p>
-            <div className="flex justify-end space-x-4">
-              <button
-                className="px-4 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
-                onClick={closeModal}
-                disabled={deletingId !== null}
-              >
-                Cancel
-              </button>
-              <button
-                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
-                onClick={handleDelete}
-                disabled={deletingId !== null}
-              >
-                {deletingId !== null ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

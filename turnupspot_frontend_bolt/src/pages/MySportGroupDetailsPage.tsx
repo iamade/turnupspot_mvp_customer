@@ -35,60 +35,24 @@ interface SportGroup {
   } | null;
 }
 
-const SportGroupDetailsPage: React.FC = () => {
+const MySportGroupDetailsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { token } = useAuth();
   const navigate = useNavigate();
   const [group, setGroup] = useState<SportGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [joining, setJoining] = useState(false);
-  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !token) return;
     setLoading(true);
-    get(`/sport-groups/${id}`)
+    get(`/sport-groups/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => setGroup(res.data as SportGroup))
       .catch(() => setError("Group not found"))
       .finally(() => setLoading(false));
-  }, [id]);
-
-  const handleJoinGroup = async () => {
-    if (!id || !user) return;
-    setJoining(true);
-    try {
-      await post(`/sport-groups/${id}/join`, {});
-      toast.success("Join request submitted successfully!");
-      // Refresh group data to update membership status
-      const res = await get(`/sport-groups/${id}`);
-      setGroup(res.data as SportGroup);
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to join group";
-      toast.error(errorMessage);
-    } finally {
-      setJoining(false);
-    }
-  };
-
-  const handleLeaveGroup = async () => {
-    if (!id || !user) return;
-    setLeaving(true);
-    try {
-      await post(`/sport-groups/${id}/leave`, {});
-      toast.success("Left group successfully!");
-      // Refresh group data to update membership status
-      const res = await get(`/sport-groups/${id}`);
-      setGroup(res.data as SportGroup);
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to leave group";
-      toast.error(errorMessage);
-    } finally {
-      setLeaving(false);
-    }
-  };
+  }, [id, token]);
 
   const handleDeleteGroup = async () => {
     if (!id) return;
@@ -99,9 +63,13 @@ const SportGroupDetailsPage: React.FC = () => {
     )
       return;
     try {
-      await post(`/sport-groups/${id}`, {}, { method: "DELETE" });
+      await post(
+        `/sport-groups/${id}`,
+        {},
+        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
+      );
       toast.success("Group deleted successfully!");
-      navigate("/sports/groups");
+      navigate("/my-sports-groups");
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to delete group";
@@ -116,10 +84,10 @@ const SportGroupDetailsPage: React.FC = () => {
       <div className="text-center py-12">
         <h2 className="text-2xl font-bold text-gray-900">Group not found</h2>
         <Link
-          to="/sports/groups"
+          to="/my-sports-groups"
           className="text-indigo-600 hover:text-indigo-800 mt-4 inline-block"
         >
-          Return to Sports Groups
+          Return to My Sports Groups
         </Link>
       </div>
     );
@@ -150,11 +118,11 @@ const SportGroupDetailsPage: React.FC = () => {
   return (
     <div className="space-y-8 max-w-2xl mx-auto px-4">
       <Link
-        to="/sports/groups"
+        to="/my-sports-groups"
         className="inline-flex items-center text-gray-600 hover:text-gray-900"
       >
         <ArrowLeft className="w-5 h-5 mr-2" />
-        Back to Sports Groups
+        Back to My Sports Groups
       </Link>
 
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -179,42 +147,12 @@ const SportGroupDetailsPage: React.FC = () => {
                 <span className="font-medium">Venue:</span> {group.venue_name}
               </p>
             </div>
-            <div className="space-x-4">
-              {group?.current_user_membership?.is_member ? (
-                <>
-                  <button
-                    onClick={handleLeaveGroup}
-                    disabled={
-                      leaving || group.current_user_membership.is_creator
-                    }
-                    className="px-4 py-2 border border-red-500 text-red-500 rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {leaving ? "Leaving..." : "Leave Group"}
-                  </button>
-                  {group.current_user_membership.role === "admin" && (
-                    <button
-                      onClick={handleDeleteGroup}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2"
-                    >
-                      Delete Group
-                    </button>
-                  )}
-                </>
-              ) : (
-                <button
-                  onClick={handleJoinGroup}
-                  disabled={joining}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
-                >
-                  {joining ? "Joining..." : "Join Group"}
-                </button>
-              )}
-            </div>
+            <div className="space-x-4">{/* No Delete Group button here */}</div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
             <Link
-              to={`/sports/groups/${id}/members`}
+              to={`/my-sports-groups/${id}/members`}
               className="bg-purple-50 p-4 rounded-lg hover:bg-purple-100 transition-colors"
             >
               <Users className="text-purple-600 mb-2" />
@@ -226,11 +164,11 @@ const SportGroupDetailsPage: React.FC = () => {
 
             {isGameDay ? (
               <Link
-                to={`/sports/groups/${id}/game-day`}
+                to={`/my-sports-groups/${id}/game-day`}
                 className="bg-green-50 p-4 rounded-lg hover:bg-green-100 transition-colors"
               >
                 <Calendar className="text-green-600 mb-2" />
-                <h3 className="font-semibold">Game Day!</h3>
+                <h3 className="font-semibold">Game Day!"</h3>
                 <p className="text-green-600">Click to manage</p>
               </Link>
             ) : (
@@ -248,7 +186,7 @@ const SportGroupDetailsPage: React.FC = () => {
             </div>
 
             <Link
-              to={`/sports/groups/${id}/chat`}
+              to={`/my-sports-groups/${id}/chat`}
               className="bg-purple-50 p-4 rounded-lg hover:bg-purple-100 transition-colors"
             >
               <MessageSquare className="text-purple-600 mb-2" />
@@ -314,4 +252,4 @@ const SportGroupDetailsPage: React.FC = () => {
   );
 };
 
-export default SportGroupDetailsPage;
+export default MySportGroupDetailsPage;

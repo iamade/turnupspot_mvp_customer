@@ -24,6 +24,7 @@ import AllSportsGroupsPage from "./pages/AllSportsGroupsPage";
 import MySportGroupDetailsPage from "./pages/MySportGroupDetailsPage";
 import MyGroupMembersPage from "./pages/MyGroupMembersPage";
 import MyGroupJoinPage from "./pages/MyGroupJoinPage";
+import ActivateAccountPage from "./pages/ActivateAccountPage";
 import { AuthProvider } from "./contexts/AuthContext";
 
 function App() {
@@ -83,6 +84,7 @@ function App() {
               path="/my-sports-groups/:id/join"
               element={<MyGroupJoinPage />}
             />
+            <Route path="/activate" element={<ActivateAccountPage />} />
           </Routes>
         </MainLayout>
       </AuthProvider>

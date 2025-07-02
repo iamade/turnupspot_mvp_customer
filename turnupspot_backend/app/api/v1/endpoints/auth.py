@@ -10,6 +10,8 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, Token, UserLogin
 from app.core.exceptions import UnauthorizedException
 from app.api.deps import get_current_user
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
+import secrets
 
 router = APIRouter()
 
@@ -27,6 +29,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     
     # Create new user
     hashed_password = get_password_hash(user_data.password)
+    activation_token = secrets.token_urlsafe(32)
     db_user = User(
         email=user_data.email,
         hashed_password=hashed_password,
@@ -35,14 +38,42 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         phone_number=user_data.phone_number,
         date_of_birth=user_data.date_of_birth,
         bio=user_data.bio,
-        role=user_data.role
+        role=user_data.role,
+        is_active=False,
+        is_verified=False,
+        activation_token=activation_token
     )
-    
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    
-    return db_user
+
+    # Send activation email
+    conf = ConnectionConfig(
+        MAIL_USERNAME="support@turnupspot.com",
+        MAIL_PASSWORD="YOUR_OUTLOOK_PASSWORD_OR_APP_PASSWORD",
+        MAIL_FROM="support@turnupspot.com",
+        MAIL_PORT=587,
+        MAIL_SERVER="smtp.office365.com",
+        MAIL_TLS=True,
+        MAIL_SSL=False,
+        USE_CREDENTIALS=True
+    )
+    activation_link = f"https://localhost:5173/activate?token={activation_token}"
+    message = MessageSchema(
+        subject="Activate your TurnUpSpot account",
+        recipients=[db_user.email],
+        body=f"""
+            <h3>Welcome to TurnUpSpot!</h3>
+            <p>Click the link below to activate your account:</p>
+            <a href='{activation_link}'>{activation_link}</a>
+        """,
+        subtype="html"
+    )
+    fm = FastMail(conf)
+    import asyncio
+    asyncio.create_task(fm.send_message(message))
+
+    return {"message": "Registration successful! Please check your email to activate your account."}
 
 
 @router.post("/login", response_model=Token)
@@ -51,12 +82,12 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     user = authenticate_user(db, user_credentials.email, user_credentials.password)
     if not user:
         raise UnauthorizedException("Incorrect email or password")
-    
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Please activate your account via the email sent to you.")
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
-    
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -84,3 +115,15 @@ def refresh_token(current_user: User = Depends(get_current_user)):
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/activate")
+def activate_user(token: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.activation_token == token).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    user.is_active = True
+    user.is_verified = True
+    user.activation_token = None
+    db.commit()
+    return {"message": "Account activated!"}

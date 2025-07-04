@@ -2,12 +2,14 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+import os
+import asyncio
 
 from app.core.database import get_db
 from app.core.security import authenticate_user, create_access_token, get_password_hash
 from app.core.config import settings
 from app.models.user import User
-from app.schemas.user import UserCreate, UserResponse, Token, UserLogin
+from app.schemas.user import UserCreate, UserResponse, Token, UserLogin, RegistrationResponse
 from app.core.exceptions import UnauthorizedException
 from app.api.deps import get_current_user
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
@@ -15,8 +17,7 @@ import secrets
 
 router = APIRouter()
 
-
-@router.post("/register", response_model=UserResponse)
+@router.post("/register", response_model=RegistrationResponse)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
     """Register a new user"""
     # Check if user already exists
@@ -43,37 +44,45 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         is_verified=False,
         activation_token=activation_token
     )
+
+    try:
+        # Send activation email
+        conf = ConnectionConfig(
+            MAIL_USERNAME=os.environ.get("MAIL_USERNAME"),
+            MAIL_PASSWORD=os.environ.get("MAIL_PASSWORD"),
+            MAIL_FROM=os.environ.get("MAIL_FROM"),
+            MAIL_PORT=int(os.environ.get("MAIL_PORT", 587)),
+            MAIL_SERVER=os.environ.get("MAIL_SERVER", "smtp-mail.outlook.com"),
+            MAIL_STARTTLS=os.environ.get("MAIL_STARTTLS", "True") == "True",
+            MAIL_SSL_TLS=os.environ.get("MAIL_SSL_TLS", "False") == "True",
+            USE_CREDENTIALS=os.environ.get("USE_CREDENTIALS", "True") == "True"
+        )
+        activation_link = f"https://localhost:5173/activate?token={activation_token}"
+        message = MessageSchema(
+            subject="Activate your TurnUpSpot account",
+            recipients=[db_user.email],
+            body=f"""
+                <h3>Welcome to TurnUpSpot!</h3>
+                <p>Click the link below to activate your account:</p>
+                <a href='{activation_link}'>{activation_link}</a>
+            """,
+            subtype="html"
+        )
+        fm = FastMail(conf)
+        asyncio.run(fm.send_message(message))
+    except Exception as e:
+        print("Email send error:", e)
+        raise HTTPException(status_code=500, detail=f"Failed to send activation email: {e}")
+
+    #Only commit if email sent successfully
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
 
-    # Send activation email
-    conf = ConnectionConfig(
-        MAIL_USERNAME="support@turnupspot.com",
-        MAIL_PASSWORD="YOUR_OUTLOOK_PASSWORD_OR_APP_PASSWORD",
-        MAIL_FROM="support@turnupspot.com",
-        MAIL_PORT=587,
-        MAIL_SERVER="smtp.office365.com",
-        MAIL_TLS=True,
-        MAIL_SSL=False,
-        USE_CREDENTIALS=True
-    )
-    activation_link = f"https://localhost:5173/activate?token={activation_token}"
-    message = MessageSchema(
-        subject="Activate your TurnUpSpot account",
-        recipients=[db_user.email],
-        body=f"""
-            <h3>Welcome to TurnUpSpot!</h3>
-            <p>Click the link below to activate your account:</p>
-            <a href='{activation_link}'>{activation_link}</a>
-        """,
-        subtype="html"
-    )
-    fm = FastMail(conf)
-    import asyncio
-    asyncio.create_task(fm.send_message(message))
-
-    return {"message": "Registration successful! Please check your email to activate your account."}
+    return {
+        "user": db_user,
+        "message": "Registration successful! Please check your email to activate your account."
+    }
 
 
 @router.post("/login", response_model=Token)

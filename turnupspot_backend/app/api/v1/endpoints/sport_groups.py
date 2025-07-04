@@ -398,7 +398,9 @@ def get_group_members(
     
     query = db.query(SportGroupMember).filter(SportGroupMember.sport_group_id == group_id)
     
-    if not include_pending:
+    if include_pending:
+        query = query.filter(SportGroupMember.is_approved == False)
+    else:
         query = query.filter(SportGroupMember.is_approved == True)
     
     members = query.all()

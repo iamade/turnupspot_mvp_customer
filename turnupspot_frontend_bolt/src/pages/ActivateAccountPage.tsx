@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { get } from "../api";
 
@@ -8,13 +8,14 @@ const ActivateAccountPage: React.FC = () => {
     "pending"
   );
   const navigate = useNavigate();
+  const called = useRef(false);
 
   useEffect(() => {
     const token = searchParams.get("token");
-    if (!token) {
-      setStatus("error");
+    if (!token || called.current) {
       return;
     }
+    called.current = true;
     get(`/auth/activate?token=${token}`)
       .then(() => setStatus("success"))
       .catch(() => setStatus("error"));

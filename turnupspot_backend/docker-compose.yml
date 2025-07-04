@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   backend:
     build: .
@@ -10,6 +9,14 @@ services:
       - MONGODB_URI=mongodb://mongo:27017
       - MONGODB_DB_NAME=turnupspot
       - REDIS_URL=redis://redis:6379/0
+      - MAIL_USERNAME=support@turnupspot.com
+      - MAIL_PASSWORD=ccrpznjdwjvmknlk
+      - MAIL_FROM=support@turnupspot.com
+      - MAIL_PORT=587
+      - MAIL_SERVER=smtp-mail.outlook.com
+      - MAIL_STARTTLS=True
+      - MAIL_SSL_TLS=False
+      - USE_CREDENTIALS=True
     depends_on:
       - db
       - mongo

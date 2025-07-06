@@ -1,23 +1,31 @@
+import os
+from dotenv import load_dotenv
 from typing import List, Optional
 from pydantic_settings import BaseSettings
-from decouple import config
+
+# Auto-load the correct .env file based on ENVIRONMENT
+env = os.getenv("ENVIRONMENT", "development")
+if env == "production":
+    load_dotenv(".env.production")
+else:
+    load_dotenv(".env.development")
 
 
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "TurnUp Spot API"
     VERSION: str = "1.0.0"
-    DEBUG: bool = config("DEBUG", default=False, cast=bool)
-    ENVIRONMENT: str = config("ENVIRONMENT", default="development")
+    DEBUG: bool = False
+    ENVIRONMENT: str = "development"
     
     # Database
-    DATABASE_URL: str = config("DATABASE_URL")
-    TEST_DATABASE_URL: Optional[str] = config("TEST_DATABASE_URL", default=None)
+    DATABASE_URL: str
+    TEST_DATABASE_URL: Optional[str] = None
     
     # Security
-    SECRET_KEY: str = config("SECRET_KEY")
-    ALGORITHM: str = config("ALGORITHM", default="HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = config("ACCESS_TOKEN_EXPIRE_MINUTES", default=30, cast=int)
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # CORS
     ALLOWED_ORIGINS: List[str] = [
@@ -29,35 +37,42 @@ class Settings(BaseSettings):
     ]
     
     # Redis
-    REDIS_URL: str = config("REDIS_URL", default="redis://localhost:6379")
+    REDIS_URL: str = "redis://localhost:6379"
     
     # AWS S3
-    AWS_ACCESS_KEY_ID: Optional[str] = config("AWS_ACCESS_KEY_ID", default=None)
-    AWS_SECRET_ACCESS_KEY: Optional[str] = config("AWS_SECRET_ACCESS_KEY", default=None)
-    AWS_BUCKET_NAME: Optional[str] = config("AWS_BUCKET_NAME", default=None)
-    AWS_REGION: str = config("AWS_REGION", default="ca-central-1")
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    AWS_BUCKET_NAME: Optional[str] = None
+    AWS_REGION: str = "ca-central-1"
     
     # Stripe
-    STRIPE_SECRET_KEY: Optional[str] = config("STRIPE_SECRET_KEY", default=None)
-    STRIPE_WEBHOOK_SECRET: Optional[str] = config("STRIPE_WEBHOOK_SECRET", default=None)
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
     
     # SendGrid
-    SENDGRID_API_KEY: Optional[str] = config("SENDGRID_API_KEY", default=None)
-    FROM_EMAIL: str = config("FROM_EMAIL", default="noreply@turnupspot.com")
+    SENDGRID_API_KEY: Optional[str] = None
+    FROM_EMAIL: str = "noreply@turnupspot.com"
     
     # File Upload
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
     ALLOWED_IMAGE_TYPES: List[str] = ["image/jpeg", "image/png", "image/gif", "image/webp"]
     
     # Google Maps
-    GOOGLE_MAPS_API_KEY: str = config("GOOGLE_MAPS_API_KEY")
+    GOOGLE_MAPS_API_KEY: str
     
     # MongoDB
-    MONGODB_URI: str = config("MONGODB_URI")
-    MONGODB_DB_NAME: str = config("MONGODB_DB_NAME")
-    
-    class Config:
-        env_file = ".env"
+    MONGODB_URI: str
+    MONGODB_DB_NAME: str
+
+    # Supabase (optional, for compatibility with envs that include these)
+    supabase_anon_key: Optional[str] = None
+    supabase_url: Optional[str] = None
+    supabase_service_role_key: Optional[str] = None
+
+    model_config = {
+        "env_file": ".env",
+        "extra": "ignore"
+    }
 
 
 settings = Settings()

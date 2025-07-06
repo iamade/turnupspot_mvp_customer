@@ -50,7 +50,7 @@ function App() {
               element={<InviteMemberPage />}
             />
             <Route
-              path="/sports/groups/:id/game-day"
+              path="/my-sports-groups/:id/game-day"
               element={<GameDayPage />}
             />
             <Route

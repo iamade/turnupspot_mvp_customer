@@ -5,7 +5,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:1234@db:5432/turnupspot
+      # - DATABASE_URL=postgresql://postgres:1234@db:5432/turnupspot
+      - DATABASE_URL=postgresql://postgres:i@mTurnupspot2025@db.vwawhztoptaxbejmtfnw.supabase.co:5432/postgres
       - MONGODB_URI=mongodb://mongo:27017
       - MONGODB_DB_NAME=turnupspot
       - REDIS_URL=redis://redis:6379/0
@@ -23,17 +24,17 @@ services:
       - redis
     volumes:
       - .:/app
-  db:
-    image: postgres:15
-    restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234
-      POSTGRES_DB: turnupspot
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+  # db:
+  #   image: postgres:15
+  #   restart: always
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: 1234
+  #     POSTGRES_DB: turnupspot
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
   mongo:
     image: mongo:6
     restart: always

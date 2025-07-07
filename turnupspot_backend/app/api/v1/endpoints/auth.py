@@ -57,7 +57,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
             MAIL_SSL_TLS=os.environ.get("MAIL_SSL_TLS", "False") == "True",
             USE_CREDENTIALS=os.environ.get("USE_CREDENTIALS", "True") == "True"
         )
-        activation_link = f"https://localhost:5173/activate?token={activation_token}"
+        activation_link = f"https://www.turnupspot.com/activate?token={activation_token}"
         message = MessageSchema(
             subject="Activate your TurnUpSpot account",
             recipients=[db_user.email],

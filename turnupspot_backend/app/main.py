@@ -33,7 +33,7 @@ app = FastAPI(
 if not settings.DEBUG:
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["turnupspot.com", "*.turnupspot.com", "localhost", "https://turnupspot-api.onrender.com"]
+        allowed_hosts=["turnupspot.com", "*.turnupspot.com", "localhost", "*.turnupspot-api.onrender.com", "turnupspot-api.onrender.com"]
     )
 
 # CORS middleware

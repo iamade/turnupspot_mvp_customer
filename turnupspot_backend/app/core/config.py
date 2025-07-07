@@ -3,20 +3,13 @@ from dotenv import load_dotenv
 from typing import List, Optional
 from pydantic_settings import BaseSettings
 
-# Auto-load the correct .env file based on ENVIRONMENT
-env = os.getenv("ENVIRONMENT", "development")
-if env == "production":
-    load_dotenv(".env.production")
-else:
-    load_dotenv(".env.development")
-
 
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "TurnUp Spot API"
     VERSION: str = "1.0.0"
     DEBUG: bool = False
-    ENVIRONMENT: str = env
+    ENVIRONMENT: str = "development"
     
     # Database
     DATABASE_URL: str

@@ -149,3 +149,6 @@ Thumbs.db
 
 # Test files
 test.db
+
+.env.development
+.env.production

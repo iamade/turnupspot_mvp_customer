@@ -6,7 +6,7 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:1234@db:5432/turnupspot
-      # - DATABASE_URL=postgresql://postgres:i@mTurnupspot2025@db.vwawhztoptaxbejmtfnw.supabase.co:5432/postgres
+      # - DATABASE_URL=postgresql://postgres:i%40mTurnupspot2025@db.vwawhztoptaxbejmtfnw.supabase.co:5432/turnupspot
       - MONGODB_URI=mongodb://mongo:27017
       - MONGODB_DB_NAME=turnupspot
       - REDIS_URL=redis://redis:6379/0

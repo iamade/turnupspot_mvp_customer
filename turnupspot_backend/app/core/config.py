@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "TurnUp Spot API"
     VERSION: str = "1.0.0"
     DEBUG: bool = False
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = env
     
     # Database
     DATABASE_URL: str

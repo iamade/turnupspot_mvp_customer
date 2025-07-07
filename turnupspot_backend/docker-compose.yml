@@ -4,19 +4,7 @@ services:
     container_name: turnupspot_backend
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://postgres.vwawhztoptaxbejmtfnw:KgtKZoZ9VQik6T5K@aws-0-ca-central-1.pooler.supabase.com:5432/postgres
-      - MONGODB_URI=mongodb://mongo:27017
-      - MONGODB_DB_NAME=turnupspot
-      - REDIS_URL=redis://redis:6379/0
-      - MAIL_USERNAME=support@turnupspot.com
-      - MAIL_PASSWORD=ccrpznjdwjvmknlk
-      - MAIL_FROM=support@turnupspot.com
-      - MAIL_PORT=587
-      - MAIL_SERVER=smtp-mail.outlook.com
-      - MAIL_STARTTLS=True
-      - MAIL_SSL_TLS=False
-      - USE_CREDENTIALS=True
+
     depends_on:
       # - db
       - mongo

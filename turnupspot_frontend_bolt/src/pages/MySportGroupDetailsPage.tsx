@@ -179,20 +179,29 @@ const MySportGroupDetailsPage: React.FC = () => {
               </div>
             )}
 
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <Trophy className="text-purple-600 mb-2" />
-              <h3 className="font-semibold">Tournament</h3>
-              <p className="text-purple-600">In Progress</p>
+            {/* Disabled Tournament Card */}
+            <div
+              className="bg-gray-100 p-4 rounded-lg cursor-not-allowed opacity-60"
+              title="Tournament is disabled"
+            >
+              <Trophy className="text-gray-400 mb-2" />
+              <h3 className="font-semibold text-gray-500">
+                Tournament (Disabled)
+              </h3>
+              <p className="text-gray-500">Not available</p>
             </div>
 
-            <Link
-              to={`/my-sports-groups/${id}/chat`}
-              className="bg-purple-50 p-4 rounded-lg hover:bg-purple-100 transition-colors"
+            {/* Disabled Group Chat Card */}
+            <div
+              className="bg-gray-100 p-4 rounded-lg cursor-not-allowed opacity-60"
+              title="Group Chat is disabled"
             >
-              <MessageSquare className="text-purple-600 mb-2" />
-              <h3 className="font-semibold">Group Chat</h3>
-              <p className="text-purple-600">12 new messages</p>
-            </Link>
+              <MessageSquare className="text-gray-400 mb-2" />
+              <h3 className="font-semibold text-gray-500">
+                Group Chat (Disabled)
+              </h3>
+              <p className="text-gray-500">Not available</p>
+            </div>
           </div>
         </div>
       </div>

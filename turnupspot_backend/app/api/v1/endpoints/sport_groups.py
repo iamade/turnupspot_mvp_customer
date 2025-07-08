@@ -514,7 +514,7 @@ def make_member_admin(
     # Find the member to promote
     member = db.query(SportGroupMember).filter(
         SportGroupMember.sport_group_id == group_id,
-        SportGroupMember.user_id == member_id
+        SportGroupMember.id == member_id
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")

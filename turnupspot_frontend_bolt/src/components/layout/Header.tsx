@@ -48,21 +48,31 @@ const Header = () => {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-8">
-            <Link to="/home" className="text-gray-600 hover:text-gray-900">
-              Home
-            </Link>
-            <Link to="/events" className="text-gray-600 hover:text-gray-900">
-              Events
-            </Link>
-            <Link
-              to="/sports/groups"
-              className="text-gray-600 hover:text-gray-900"
-            >
-              Sports
-            </Link>
-            <Link to="/vendors" className="text-gray-600 hover:text-gray-900">
-              Vendors
-            </Link>
+            {user && (
+              <>
+                <Link to="/home" className="text-gray-600 hover:text-gray-900">
+                  Home
+                </Link>
+                <Link
+                  to="/events"
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  Events
+                </Link>
+                <Link
+                  to="/sports/groups"
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  Sports
+                </Link>
+                <Link
+                  to="/vendors"
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  Vendors
+                </Link>
+              </>
+            )}
           </nav>
 
           {/* Desktop Auth/User Buttons */}
@@ -113,34 +123,38 @@ const Header = () => {
         {isMenuOpen && (
           <div className="md:hidden absolute top-full left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
             <nav className="flex flex-col py-4">
-              <Link
-                to="/home"
-                className="px-4 py-2 text-gray-600 hover:bg-gray-50"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Home
-              </Link>
-              <Link
-                to="/events"
-                className="px-4 py-2 text-gray-600 hover:bg-gray-50"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Events
-              </Link>
-              <Link
-                to="/sports/groups"
-                className="px-4 py-2 text-gray-600 hover:bg-gray-50"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Sports
-              </Link>
-              <Link
-                to="/vendors"
-                className="px-4 py-2 text-gray-600 hover:bg-gray-50"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Vendors
-              </Link>
+              {user && (
+                <>
+                  <Link
+                    to="/home"
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-50"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Home
+                  </Link>
+                  <Link
+                    to="/events"
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-50"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Events
+                  </Link>
+                  <Link
+                    to="/sports/groups"
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-50"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Sports
+                  </Link>
+                  <Link
+                    to="/vendors"
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-50"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Vendors
+                  </Link>
+                </>
+              )}
               <div className="px-4 py-2 border-t border-gray-200">
                 <input
                   type="search"

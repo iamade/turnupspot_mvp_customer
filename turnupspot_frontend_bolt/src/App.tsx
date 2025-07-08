@@ -26,10 +26,13 @@ import MyGroupMembersPage from "./pages/MyGroupMembersPage";
 import MyGroupJoinPage from "./pages/MyGroupJoinPage";
 import ActivateAccountPage from "./pages/ActivateAccountPage";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 function App() {
   return (
     <Router>
+      <ToastContainer position="top-right" autoClose={4000} />
       <AuthProvider>
         <MainLayout>
           <Routes>

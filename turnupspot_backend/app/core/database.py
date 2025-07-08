@@ -17,8 +17,8 @@ else:
         settings.DATABASE_URL,
         pool_pre_ping=True,
         pool_recycle=300,
-        pool_size=10,
-        max_overflow=20
+        pool_size=1, # Set to 1 for PgBouncer session mode
+        max_overflow=0 # Set to 0 to prevent additional connections
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

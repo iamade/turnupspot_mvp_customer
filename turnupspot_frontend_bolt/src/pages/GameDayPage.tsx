@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { get, post } from "../api";
+import { useAuth } from "../contexts/AuthContext";
+import { toast } from "react-toastify";
 
 interface Player {
   id: string;
@@ -10,6 +12,7 @@ interface Player {
   arrivalTime?: string;
   isCaptain?: boolean;
   team?: number;
+  user_id?: string; // Added user_id to the interface
 }
 
 interface Team {
@@ -42,6 +45,7 @@ interface BackendPlayer {
   arrival_time?: string;
   is_captain?: boolean;
   team?: number;
+  user_id?: string; // Added user_id to the interface
 }
 
 const GameDayPage = () => {
@@ -61,6 +65,9 @@ const GameDayPage = () => {
     lng: number;
     radius: number;
   } | null>(null);
+  const { token, user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [myMembershipId, setMyMembershipId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchGameDayData();
@@ -70,8 +77,13 @@ const GameDayPage = () => {
     try {
       setLoading(true);
 
+      // Always include the token in headers
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
       // Fetch game day info
-      const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`);
+      const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
+        headers,
+      });
       setGameDayInfo(gameDayResponse.data);
 
       // Set venue location from API response
@@ -83,7 +95,8 @@ const GameDayPage = () => {
 
       // Fetch players
       const playersResponse = await get<BackendPlayer[]>(
-        `/games/game-day/${id}/players`
+        `/games/game-day/${id}/players`,
+        { headers }
       );
 
       // Map backend response to frontend interface
@@ -95,10 +108,33 @@ const GameDayPage = () => {
           arrivalTime: player.arrival_time, // Map snake_case to camelCase
           isCaptain: player.is_captain,
           team: player.team,
+          user_id: player.user_id, // Map user_id
         })
       );
 
       setPlayers(mappedPlayers);
+
+      // Find the current user's membership ID and set it in state
+      if (user) {
+        const myPlayer = mappedPlayers.find((p) => p.user_id === user.id);
+        if (myPlayer) {
+          setMyMembershipId(myPlayer.id);
+        } else {
+          setMyMembershipId(null);
+        }
+      }
+
+      // Set isAtVenue if current user is arrived
+      if (user && myMembershipId !== null) {
+        const currentPlayer = mappedPlayers.find(
+          (p) => p.id === myMembershipId
+        );
+        if (currentPlayer && currentPlayer.status === "arrived") {
+          setIsAtVenue(true);
+        } else {
+          setIsAtVenue(false);
+        }
+      }
 
       // Generate teams based on player data
       generateTeamsFromPlayers(playersResponse.data);
@@ -249,6 +285,28 @@ const GameDayPage = () => {
       setCheckinError(errorMessage);
     } finally {
       setCheckInLoading(false);
+    }
+  };
+
+  const handleBeCaptain = async (playerId: string, teamNumber: number) => {
+    if (!id) return;
+    try {
+      await post(
+        `/games/game-day/${id}/teams/assign-captains`,
+        { [playerId]: teamNumber },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+      await fetchGameDayData();
+    } catch (error: any) {
+      let message = "Failed to assign captain. Please try again.";
+      if (error?.response?.data?.detail) {
+        message = error.response.data.detail;
+      } else if (error?.message) {
+        message = error.message;
+      } else if (typeof error === "string") {
+        message = error;
+      }
+      toast.error(message);
     }
   };
 
@@ -430,43 +488,102 @@ const GameDayPage = () => {
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-bold mb-6">Player Arrival</h2>
           <div className="space-y-4">
-            {currentPlayers
-              .sort((a, b) => {
+            {(() => {
+              // Sort by arrival time, then by status (arrived first)
+              const sortedPlayers = [...players].sort((a, b) => {
                 if (a.arrivalTime && b.arrivalTime) {
                   return a.arrivalTime.localeCompare(b.arrivalTime);
                 }
                 return a.status === "arrived" ? -1 : 1;
-              })
-              .map((player) => (
-                <div
-                  key={player.id}
-                  className="flex items-center justify-between border-b pb-4 last:border-b-0"
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden">
-                      {/* Player avatar would go here */}
-                    </div>
-                    <div>
-                      <h3 className="font-medium">
-                        {player.name}
-                        {player.isCaptain && " (Captain)"}
-                      </h3>
-                      <div className="flex items-center space-x-2">
-                        <span
-                          className={`text-sm ${getStatusColor(player.status)}`}
-                        >
-                          {player.status}
-                        </span>
-                        {player.arrivalTime && (
-                          <span className="text-sm text-gray-500">
-                            • {player.arrivalTime}
+              });
+              // Get first 10 arrived players
+              const firstTenArrived = sortedPlayers
+                .filter((p) => p.status === "arrived")
+                .slice(0, 10);
+              // Find captains
+              const team1Captain = firstTenArrived.find(
+                (p) => p.isCaptain && p.team === 1
+              );
+              const team2Captain = firstTenArrived.find(
+                (p) => p.isCaptain && p.team === 2
+              );
+              return currentPlayers.map((player) => {
+                const isFirstTen = firstTenArrived.some(
+                  (p) => p.id === player.id
+                );
+                const isPlayerTeam1Captain =
+                  player.isCaptain && player.team === 1;
+                const isPlayerTeam2Captain =
+                  player.isCaptain && player.team === 2;
+                let showCaptainButton = false;
+                let captainButtonText = "";
+                if (
+                  isFirstTen &&
+                  !isPlayerTeam1Captain &&
+                  !isPlayerTeam2Captain
+                ) {
+                  if (!team1Captain) {
+                    showCaptainButton = true;
+                    captainButtonText = "Be captain of Team 1";
+                  } else if (!team2Captain) {
+                    showCaptainButton = true;
+                    captainButtonText = "Be captain of Team 2";
+                  }
+                }
+                return (
+                  <div
+                    key={player.id}
+                    className="flex items-center justify-between border-b pb-4 last:border-b-0"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden">
+                        {/* Player avatar would go here */}
+                      </div>
+                      <div>
+                        <h3 className="font-medium flex items-center gap-2">
+                          {player.name}
+                          {player.isCaptain && player.team && (
+                            <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                              Captain (Team {player.team})
+                            </span>
+                          )}
+                          {isFirstTen && (
+                            <span className="ml-2 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                              1st ten
+                            </span>
+                          )}
+                        </h3>
+                        <div className="flex items-center space-x-2">
+                          <span
+                            className={`text-sm ${getStatusColor(
+                              player.status
+                            )}`}
+                          >
+                            {player.status}
                           </span>
-                        )}
+                          {player.arrivalTime && (
+                            <span className="text-sm text-gray-500">
+                              • {player.arrivalTime}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                    {showCaptainButton &&
+                      (isAdmin || player.id === myMembershipId) && (
+                        <button
+                          className="ml-auto px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
+                          onClick={() =>
+                            handleBeCaptain(player.id, !team1Captain ? 1 : 2)
+                          }
+                        >
+                          {captainButtonText}
+                        </button>
+                      )}
                   </div>
-                </div>
-              ))}
+                );
+              });
+            })()}
           </div>
 
           {/* Pagination */}

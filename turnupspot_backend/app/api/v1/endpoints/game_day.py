@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from datetime import datetime, timedelta
 import calendar
+import logging
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -125,7 +126,8 @@ def get_game_day_players(
     players = []
     for member in members:
         player_info = {
-            "id": member.user.id,
+            "id": member.id,
+            "user_id": member.user.id,
             "name": member.user.full_name,
             "status": "expected",
             "arrival_time": None,
@@ -146,8 +148,8 @@ def get_game_day_players(
                 player_info["status"] = game_player.status.value
                 player_info["arrival_time"] = game_player.arrival_time.strftime("%H:%M") if game_player.arrival_time else None
                 player_info["team"] = game_player.team.team_number if game_player.team else None
-                player_info["is_captain"] = game_player.team.captain_id == member.id if game_player.team and game_player.team.captain_id else False
-                print(f"Found game player for {member.user.full_name}: status={game_player.status.value}, arrival_time={game_player.arrival_time}")
+                player_info["is_captain"] = (game_player.team and game_player.team.captain_id == member.id)
+                
             else:
                 print(f"No game player record found for {member.user.full_name}")
         
@@ -316,17 +318,14 @@ def assign_captains(
 ):
     """Assign captains to teams (first 10 players only)"""
     # Check if user is admin of the sport group
-    membership = db.query(SportGroupMember).filter(
+    admin_membership = db.query(SportGroupMember).filter(
         and_(
             SportGroupMember.sport_group_id == sport_group_id,
             SportGroupMember.user_id == current_user.id,
             SportGroupMember.role == MemberRole.ADMIN
         )
     ).first()
-    
-    if not membership:
-        raise ForbiddenException("Only group admins can assign captains")
-    
+
     # Get current game
     today = datetime.now()
     current_game = db.query(Game).filter(
@@ -336,32 +335,45 @@ def assign_captains(
             Game.status.in_([GameStatus.SCHEDULED, GameStatus.IN_PROGRESS])
         )
     ).first()
-    
+
     if not current_game:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active game found"
         )
-    
-    # Get arrived players
+
+    # Get first 10 arrived players
     arrived_players = db.query(GamePlayer).filter(
         and_(
             GamePlayer.game_id == current_game.id,
             GamePlayer.status == PlayerStatus.ARRIVED
         )
-    ).all()
-    
+    ).order_by(GamePlayer.arrival_time.asc()).limit(10).all()
+
+    # Get the current user's membership record
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == sport_group_id,
+            SportGroupMember.user_id == current_user.id
+        )
+    ).first()
+
+    # Now compare membership.id to GamePlayer.member_id
+    is_first_ten = any(p.member_id == membership.id for p in arrived_players)
+
+    if not admin_membership and not is_first_ten:
+        raise ForbiddenException("Only admins or the first 10 arrived players can assign captains")
+
     if len(arrived_players) < 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Need at least 10 players to assign captains"
         )
-    
+
     # Assign captains
     for player_id, team_number in captain_assignments.items():
         if team_number not in [1, 2]:
             continue
-            
         # Find or create team
         team = db.query(GameTeam).filter(
             and_(
@@ -369,7 +381,6 @@ def assign_captains(
                 GameTeam.team_number == team_number
             )
         ).first()
-        
         if not team:
             team = GameTeam(
                 game_id=current_game.id,
@@ -377,8 +388,8 @@ def assign_captains(
                 team_number=team_number
             )
             db.add(team)
-            db.flush()
-        
+            db.flush()  # Assigns team.id
+            print(f"Created new team: {team.team_name} with id {team.id}")
         # Find player
         player = db.query(GamePlayer).filter(
             and_(
@@ -386,13 +397,16 @@ def assign_captains(
                 GamePlayer.member_id == player_id
             )
         ).first()
-        
+        print(f"Assigning captain: player_id={player_id}, team_id={team.id}, player={player}")
         if player:
             team.captain_id = player.member_id
             player.team_id = team.id
-    
+            player.is_captain = True
+            db.flush()  # Ensure changes are staged for commit
+            print(f"After assignment: team.captain_id={team.captain_id}, player.team_id={player.team_id}, player.is_captain={player.is_captain}")
+        else:
+            print(f"No GamePlayer found for player_id={player_id} in game_id={current_game.id}")
     db.commit()
-    
     return {"message": "Captains assigned successfully"}
 
 

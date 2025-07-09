@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, BarChart2, Upload, MapPin } from "lucide-react";
-import { post } from "../../api";
+import { get, put } from "../../api"; // Changed post to put for updates
 import { useAuth } from "../../contexts/AuthContext";
+import { toast } from "react-toastify"; // Added toast for notifications
 
 // Google Places API types
 interface PlaceResult {
@@ -12,6 +13,26 @@ interface PlaceResult {
     main_text: string;
     secondary_text: string;
   };
+}
+
+// Interface for fetched SportGroup data
+interface SportGroupData {
+  id: string;
+  name: string;
+  description: string;
+  venue_name: string;
+  venue_address: string;
+  venue_latitude: number;
+  venue_longitude: number;
+  venue_image_url?: string;
+  playing_days: string; // Comma-separated string
+  game_start_time: string; // ISO format string
+  game_end_time: string; // ISO format string
+  max_teams: number;
+  max_players_per_team: number;
+  rules?: string;
+  referee_required: boolean;
+  sports_type: string; // This field is not updated in the PUT request
 }
 
 const dayNameToNumber: Record<string, number> = {
@@ -24,34 +45,31 @@ const dayNameToNumber: Record<string, number> = {
   Sunday: 6,
 };
 
-const CreateSportGroupForm: React.FC = () => {
+const EditSportGroupForm: React.FC = () => {
+  const { id } = useParams<{ id: string }>(); // Get group ID from URL
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const sportType = searchParams.get("type") || "football";
   const { token } = useAuth();
 
   const [formData, setFormData] = useState({
     name: "",
+    description: "",
     venue: "",
     address: "",
     latitude: "",
     longitude: "",
     maxTeams: "",
     maxPlayersPerTeam: "",
-    gamesPerWeek: "",
-    gameDateTime: "",
-    refereeRequired: false,
-    createdBy: "",
-    description: "",
-    venueImage: null as File | null,
-    venueImagePreview: "",
     playingDays: [] as string[],
     gameStartTime: "",
     gameEndTime: "",
     rules: "",
-    weatherPolicy: "",
-    substitutionPolicy: "",
+    refereeRequired: false,
+    venueImage: null as File | null,
+    venueImagePreview: "",
   });
+
+  const [loadingGroupData, setLoadingGroupData] = useState(true);
+  const [groupNotFound, setGroupNotFound] = useState(false);
 
   // Google Places API state
   const [addressSuggestions, setAddressSuggestions] = useState<PlaceResult[]>(
@@ -63,7 +81,6 @@ const CreateSportGroupForm: React.FC = () => {
   // Load Google Places API
   useEffect(() => {
     const loadGooglePlacesAPI = () => {
-      // Check if API key is available
       const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
       if (!apiKey || apiKey === "your_google_maps_api_key_here") {
         console.error(
@@ -72,12 +89,10 @@ const CreateSportGroupForm: React.FC = () => {
         return;
       }
 
-      // Check if Google Maps is already loaded
       if (window.google && window.google.maps) {
         return;
       }
 
-      // Check if script is already being loaded
       if (document.querySelector('script[src*="maps.googleapis.com"]')) {
         return;
       }
@@ -95,10 +110,74 @@ const CreateSportGroupForm: React.FC = () => {
     loadGooglePlacesAPI();
   }, []);
 
+  // Fetch existing group data
+  useEffect(() => {
+    if (!id || !token) {
+      setLoadingGroupData(false);
+      return;
+    }
+
+    const fetchGroupData = async () => {
+      try {
+        const res = await get<SportGroupData>(`/sport-groups/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const groupData = res.data;
+
+        // Format times to HH:MM
+        const gameStartTime = new Date(
+          groupData.game_start_time
+        ).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
+        const gameEndTime = new Date(
+          groupData.game_end_time
+        ).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
+
+        setFormData({
+          name: groupData.name,
+          description: groupData.description,
+          venue: groupData.venue_name,
+          address: groupData.venue_address,
+          latitude: groupData.venue_latitude.toString(),
+          longitude: groupData.venue_longitude.toString(),
+          maxTeams: groupData.max_teams.toString(),
+          maxPlayersPerTeam: groupData.max_players_per_team.toString(),
+          playingDays: groupData.playing_days
+            .split(",")
+            .map((day) => day.trim()),
+          gameStartTime: gameStartTime,
+          gameEndTime: gameEndTime,
+          rules: groupData.rules || "",
+          refereeRequired: groupData.referee_required,
+          venueImage: null, // No file object, only URL
+          venueImagePreview: groupData.venue_image_url || "",
+        });
+      } catch (error: any) {
+        if (error.response && error.response.status === 404) {
+          setGroupNotFound(true);
+          toast.error("Sport group not found.");
+        } else {
+          toast.error("Failed to load sport group data.");
+        }
+        console.error("Error fetching sport group:", error);
+      } finally {
+        setLoadingGroupData(false);
+      }
+    };
+
+    fetchGroupData();
+  }, [id, token]);
+
   const handleAddressChange = async (value: string) => {
     setFormData({ ...formData, address: value });
 
-    // Check if Google Maps API is available
     if (!window.google || !window.google.maps || !window.google.maps.places) {
       console.warn("Google Maps API is not loaded yet");
       return;
@@ -142,7 +221,6 @@ const CreateSportGroupForm: React.FC = () => {
     setIsLoadingLocation(true);
     setShowSuggestions(false);
 
-    // Check if Google Maps API is available
     if (!window.google || !window.google.maps || !window.google.maps.places) {
       console.warn("Google Maps API is not loaded yet");
       setIsLoadingLocation(false);
@@ -229,7 +307,6 @@ const CreateSportGroupForm: React.FC = () => {
     }
 
     try {
-      // Create FormData for file upload
       const submitData = new FormData();
       submitData.append("name", formData.name);
       submitData.append("description", formData.description);
@@ -251,25 +328,44 @@ const CreateSportGroupForm: React.FC = () => {
         "referee_required",
         formData.refereeRequired.toString()
       );
-      submitData.append("sports_type", sportType);
 
       if (formData.venueImage) {
         submitData.append("venue_image", formData.venueImage);
       }
 
-      await post("/sport-groups/", submitData, {
+      await put(`/sport-groups/${id}`, submitData, {
+        // Changed to PUT request
         headers: {
           "Content-Type": "multipart/form-data",
           Authorization: `Bearer ${token}`,
         },
       });
 
-      navigate("/my-sports-groups");
-    } catch (error) {
-      console.error("Error creating sport group:", error);
-      // TODO: Add proper error handling/toast notification
+      toast.success("Sport group updated successfully!");
+      navigate(`/my-sports-groups/${id}`);
+    } catch (error: any) {
+      toast.error(
+        error.response?.data?.detail || "Error updating sport group."
+      );
+      console.error("Error updating sport group:", error);
     }
   };
+
+  if (loadingGroupData) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8 text-center">
+        Loading group data...
+      </div>
+    );
+  }
+
+  if (groupNotFound) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8 text-center text-red-600">
+        Sport group not found.
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4">
@@ -280,7 +376,7 @@ const CreateSportGroupForm: React.FC = () => {
         >
           <ArrowLeft size={24} />
         </button>
-        <h1 className="text-xl font-semibold">Create Group</h1>
+        <h1 className="text-xl font-semibold">Edit Group</h1>
         <button className="text-gray-600 hover:text-gray-900">
           <BarChart2 size={24} />
         </button>
@@ -649,44 +745,6 @@ const CreateSportGroupForm: React.FC = () => {
               rows={4}
             />
           </div>
-
-          <div>
-            <label
-              htmlFor="weatherPolicy"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Weather Policy
-            </label>
-            <textarea
-              id="weatherPolicy"
-              placeholder="Describe weather-related policies"
-              value={formData.weatherPolicy}
-              onChange={(e) =>
-                setFormData({ ...formData, weatherPolicy: e.target.value })
-              }
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              rows={3}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="substitutionPolicy"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Substitution Policy
-            </label>
-            <textarea
-              id="substitutionPolicy"
-              placeholder="Describe substitution rules"
-              value={formData.substitutionPolicy}
-              onChange={(e) =>
-                setFormData({ ...formData, substitutionPolicy: e.target.value })
-              }
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              rows={3}
-            />
-          </div>
         </div>
 
         <div className="flex items-center">
@@ -711,11 +769,11 @@ const CreateSportGroupForm: React.FC = () => {
           type="submit"
           className="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
         >
-          Create Group
+          Save Changes
         </button>
       </form>
     </div>
   );
 };
 
-export default CreateSportGroupForm;
+export default EditSportGroupForm;

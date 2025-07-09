@@ -45,9 +45,9 @@ def get_game_day_info(
     
     # Check if today is a playing day
     today = datetime.now()
-    playing_days = sport_group.playing_days.split(',')
-    today_day = calendar.day_name[today.weekday()].lower()
-    is_playing_day = today_day in [day.strip().lower() for day in playing_days]
+    today_num = today.weekday()  
+    playing_days = [int(day.strip()) for day in sport_group.playing_days.split(",") if day.strip().isdigit()]
+    is_playing_day = today_num in playing_days
     
     # Get current game if exists
     current_game = db.query(Game).filter(

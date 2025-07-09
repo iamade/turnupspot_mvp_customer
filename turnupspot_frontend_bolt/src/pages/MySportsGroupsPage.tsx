@@ -23,6 +23,31 @@ interface SportGroup {
   member_count?: number;
 }
 
+const dayNumberToName = (days: string): string => {
+  const dayNames = [
+    "Monday", // 0
+    "Tuesday", // 1
+    "Wednesday", // 2
+    "Thursday", // 3
+    "Friday", // 4
+    "Saturday", // 5
+    "Sunday", // 6
+  ];
+  return days
+    .split(",")
+    .map((d) => dayNames[parseInt(d, 10)] || "")
+    .filter(Boolean)
+    .join(", ");
+};
+
+const formatTime = (dateTime: string): string => {
+  if (!dateTime) return "";
+  const timePart = dateTime.includes("T")
+    ? dateTime.split("T")[1]
+    : dateTime.split(" ")[1] || dateTime;
+  return timePart ? timePart.slice(0, 5) : "";
+};
+
 const MySportsGroupsPage: React.FC = () => {
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -118,10 +143,8 @@ const MySportsGroupsPage: React.FC = () => {
               </div>
               <div className="flex items-center text-sm text-gray-500">
                 <Calendar className="w-4 h-4 mr-1" />
-                Next game: {group.playing_days},{" "}
-                {typeof group.game_start_time === "string"
-                  ? group.game_start_time.slice(0, 5)
-                  : ""}
+                Next game: {dayNumberToName(group.playing_days)},{" "}
+                {formatTime(group.game_start_time)}
               </div>
             </div>
             <button

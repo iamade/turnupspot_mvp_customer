@@ -114,6 +114,34 @@ const MySportGroupDetailsPage: React.FC = () => {
   ];
 
   const isGameDay = true;
+  const isAdmin =
+    group?.current_user_membership?.role === "admin" ||
+    group?.current_user_membership?.is_creator;
+
+  const dayNumberToName = (days: string): string => {
+    const dayNames = [
+      "Monday", // 0
+      "Tuesday", // 1
+      "Wednesday", // 2
+      "Thursday", // 3
+      "Friday", // 4
+      "Saturday", // 5
+      "Sunday", // 6
+    ];
+    return days
+      .split(",")
+      .map((d) => dayNames[parseInt(d, 10)] || "")
+      .filter(Boolean)
+      .join(", ");
+  };
+
+  const formatTime = (dateTime: string): string => {
+    if (!dateTime) return "";
+    const timePart = dateTime.includes("T")
+      ? dateTime.split("T")[1]
+      : dateTime.split(" ")[1] || dateTime;
+    return timePart ? timePart.slice(0, 5) : "";
+  };
 
   return (
     <div className="space-y-8 max-w-2xl mx-auto px-4">
@@ -139,13 +167,22 @@ const MySportGroupDetailsPage: React.FC = () => {
         </div>
 
         <div className="p-6 relative">
-          <div className="flex justify-between items-start">
+          <div className="flex justify-between items-center mb-2">
             <div>
-              <h1 className="text-3xl font-bold">{group.name}</h1>
-              <p className="text-gray-600 mt-2">{group.description}</p>
-              <p className="text-gray-500 mt-1">
-                <span className="font-medium">Venue:</span> {group.venue_name}
-              </p>
+              <h1 className="text-3xl font-bold inline-block">{group.name}</h1>
+              {/* Display playing days and game start time under the group name */}
+              <div className="text-gray-600 text-base mt-1">
+                {dayNumberToName(group.playing_days)},{" "}
+                {formatTime(group.game_start_time)}
+              </div>
+              {isAdmin && (
+                <button
+                  className="ml-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 inline-block"
+                  onClick={() => navigate(`/my-sports-groups/${group.id}/edit`)}
+                >
+                  Update Group
+                </button>
+              )}
             </div>
             <div className="space-x-4">{/* No Delete Group button here */}</div>
           </div>

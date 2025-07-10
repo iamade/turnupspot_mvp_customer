@@ -12,14 +12,8 @@ interface Player {
   arrivalTime?: string;
   isCaptain?: boolean;
   team?: number;
-  user_id?: string; // Added user_id to the interface
-}
-
-interface Team {
-  id: number;
-  name: string;
-  captain: string;
-  members: string[];
+  user_id?: number; // user_id is a number from backend
+  isSelected?: boolean; // For drafting selection
 }
 
 interface GameDayInfo {
@@ -45,7 +39,7 @@ interface BackendPlayer {
   arrival_time?: string;
   is_captain?: boolean;
   team?: number;
-  user_id?: string; // Added user_id to the interface
+  user_id?: number; // user_id is a number from backend
 }
 
 const GameDayPage = () => {
@@ -57,7 +51,6 @@ const GameDayPage = () => {
   const [checkinError, setCheckinError] = useState<string>("");
   const [gameDayInfo, setGameDayInfo] = useState<GameDayInfo | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkInLoading, setCheckInLoading] = useState(false);
   const [venueLocation, setVenueLocation] = useState<{
@@ -67,7 +60,10 @@ const GameDayPage = () => {
   } | null>(null);
   const { token, user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const [myMembershipId, setMyMembershipId] = useState<number | null>(null);
+  const [myMembershipId, setMyMembershipId] = useState<string | null>(null);
+  const [draftingMode, setDraftingMode] = useState(false);
+  const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
+  const [draftingTurn, setDraftingTurn] = useState<number>(1); // 1 = Team 1, 2 = Team 2, etc.
 
   useEffect(() => {
     fetchGameDayData();
@@ -136,38 +132,12 @@ const GameDayPage = () => {
         }
       }
 
-      // Generate teams based on player data
-      generateTeamsFromPlayers(playersResponse.data);
+      // Teams are now generated dynamically in the UI
     } catch (error) {
       console.error("Error fetching game day data:", error);
     } finally {
       setLoading(false);
     }
-  };
-
-  const generateTeamsFromPlayers = (playerData: Player[]) => {
-    const teamMap = new Map<number, Team>();
-
-    playerData.forEach((player) => {
-      if (player.team) {
-        if (!teamMap.has(player.team)) {
-          teamMap.set(player.team, {
-            id: player.team,
-            name: `Team ${player.team}`,
-            captain: "",
-            members: [],
-          });
-        }
-
-        const team = teamMap.get(player.team)!;
-        if (player.isCaptain) {
-          team.captain = player.name;
-        }
-        team.members.push(player.name);
-      }
-    });
-
-    setTeams(Array.from(teamMap.values()));
   };
 
   useEffect(() => {
@@ -297,12 +267,18 @@ const GameDayPage = () => {
         token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
       );
       await fetchGameDayData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       let message = "Failed to assign captain. Please try again.";
-      if (error?.response?.data?.detail) {
-        message = error.response.data.detail;
-      } else if (error?.message) {
-        message = error.message;
+      if (error && typeof error === "object" && "response" in error) {
+        const errorResponse = error as {
+          response?: { data?: { detail?: string } };
+        };
+        if (errorResponse.response?.data?.detail) {
+          message = errorResponse.response.data.detail;
+        }
+      } else if (error && typeof error === "object" && "message" in error) {
+        const errorWithMessage = error as { message: string };
+        message = errorWithMessage.message;
       } else if (typeof error === "string") {
         message = error;
       }
@@ -353,6 +329,104 @@ const GameDayPage = () => {
   const handlePlayBall = () => {
     // Check if teams are ready and referee is present
     navigate(`/sports/groups/${id}/live-match`);
+  };
+
+  // Team drafting functions
+  const startDrafting = () => {
+    setDraftingMode(true);
+    setDraftingTurn(1);
+    setSelectedPlayers([]);
+  };
+
+  const canCurrentUserDraft = () => {
+    if (!myMembershipId) return false;
+    const player = players.find((p) => p.id === myMembershipId);
+    if (!player?.isCaptain) return false;
+
+    // Check if it's this captain's turn
+    // draftingTurn represents which team number should be drafting (1 = Team 1, 2 = Team 2, etc.)
+    const canDraft = player.team === draftingTurn;
+    console.log("Drafting Debug:", {
+      myMembershipId,
+      playerTeam: player.team,
+      draftingTurn,
+      isCaptain: player.isCaptain,
+      canDraft,
+    });
+    return canDraft;
+  };
+
+  const handlePlayerSelection = (playerId: string) => {
+    if (selectedPlayers.includes(playerId)) {
+      setSelectedPlayers(selectedPlayers.filter((id) => id !== playerId));
+    } else {
+      setSelectedPlayers([...selectedPlayers, playerId]);
+    }
+  };
+
+  const handleDraftPlayers = async () => {
+    if (!id || selectedPlayers.length === 0) return;
+
+    try {
+      const currentTeam = players.find((p) => p.id === myMembershipId)?.team;
+      if (!currentTeam) return;
+
+      await post(
+        `/games/game-day/${id}/teams/select-players`,
+        { [currentTeam]: selectedPlayers },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+
+      // Move to next team's turn
+      const captainTeams = players
+        .filter((p) => p.isCaptain)
+        .sort((a, b) => (a.team || 0) - (b.team || 0));
+
+      if (draftingTurn < Math.max(...captainTeams.map((p) => p.team || 0))) {
+        setDraftingTurn(draftingTurn + 1);
+      } else {
+        // All teams have drafted, end drafting mode
+        setDraftingMode(false);
+        setDraftingTurn(1);
+      }
+
+      setSelectedPlayers([]);
+      await fetchGameDayData();
+      toast.success("Players drafted successfully!");
+    } catch (error: unknown) {
+      let message = "Failed to draft players. Please try again.";
+      if (error && typeof error === "object" && "response" in error) {
+        const errorResponse = error as {
+          response?: { data?: { detail?: string } };
+        };
+        if (errorResponse.response?.data?.detail) {
+          message = errorResponse.response.data.detail;
+        }
+      } else if (error && typeof error === "object" && "message" in error) {
+        const errorWithMessage = error as { message: string };
+        message = errorWithMessage.message;
+      } else if (typeof error === "string") {
+        message = error;
+      }
+      toast.error(message);
+    }
+  };
+
+  const canShowPlayBallButton = () => {
+    if (!gameDayInfo?.is_playing_day) return false;
+
+    // Check if there are at least 2 teams with players
+    const teamsWithPlayers = new Set(
+      players.filter((p) => p.team).map((p) => p.team)
+    );
+    if (teamsWithPlayers.size < 2) return false;
+
+    // Check if current user is admin or captain
+    if (isAdmin) return true;
+
+    if (!myMembershipId) return false;
+    const currentPlayer = players.find((p) => p.id === myMembershipId);
+    return currentPlayer?.isCaptain || false;
   };
 
   if (loading) {
@@ -456,29 +530,65 @@ const GameDayPage = () => {
             <>
               <div className="mb-4">
                 <p className="text-gray-600">{getTeamFormationMessage()}</p>
+
+                {/* Drafting Controls */}
+                {!draftingMode &&
+                  (isAdmin || players.some((p) => p.isCaptain)) && (
+                    <div className="mt-4">
+                      <button
+                        onClick={startDrafting}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        Start Team Drafting
+                      </button>
+                    </div>
+                  )}
+
+                {draftingMode && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                    <h3 className="font-semibold text-blue-800 mb-2">
+                      Team Drafting in Progress
+                    </h3>
+                    <p className="text-blue-600 text-sm">
+                      {canCurrentUserDraft()
+                        ? `Your turn to draft players for your team!`
+                        : `Waiting for Team ${draftingTurn} captain to draft...`}
+                    </p>
+                    {canCurrentUserDraft() && selectedPlayers.length > 0 && (
+                      <button
+                        onClick={handleDraftPlayers}
+                        className="mt-2 px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                      >
+                        Draft Selected Players ({selectedPlayers.length})
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {teams.map((team) => (
-                  <div key={team.id} className="border rounded-lg p-4">
-                    <h3 className="font-semibold mb-2">{team.name}</h3>
-                    <div className="space-y-2">
+                {Array.from({ length: gameDayInfo?.max_teams || 2 }, (_, i) => {
+                  const teamNumber = i + 1;
+                  const teamPlayers = players.filter(
+                    (p) => p.team === teamNumber
+                  );
+                  const captain = teamPlayers.find((p) => p.isCaptain === true);
+                  return (
+                    <div key={teamNumber} className="border rounded-lg p-4">
+                      <h3 className="font-semibold mb-2">Team {teamNumber}</h3>
                       <div className="text-sm font-medium text-purple-600">
-                        Captain: {team.captain || "Not assigned"}
+                        Captain: {captain ? captain.name : "Not assigned"}
                       </div>
                       <div className="space-y-1">
-                        {team.members.map((member, index) => (
-                          <div key={index} className="text-sm text-gray-600">
-                            {member}
+                        {teamPlayers.map((member, idx) => (
+                          <div key={idx} className="text-sm text-gray-600">
+                            {member.name}
                           </div>
                         ))}
                       </div>
-                      <button className="mt-2 text-sm text-blue-600 hover:text-blue-800">
-                        View Details
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -569,17 +679,47 @@ const GameDayPage = () => {
                         </div>
                       </div>
                     </div>
-                    {showCaptainButton &&
-                      (isAdmin || player.id === myMembershipId) && (
-                        <button
-                          className="ml-auto px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
-                          onClick={() =>
-                            handleBeCaptain(player.id, !team1Captain ? 1 : 2)
-                          }
-                        >
-                          {captainButtonText}
-                        </button>
+                    <div className="flex items-center space-x-2">
+                      {/* Drafting Selection */}
+                      {draftingMode &&
+                        canCurrentUserDraft() &&
+                        player.status === "arrived" &&
+                        !player.team && (
+                          <button
+                            onClick={() => handlePlayerSelection(player.id)}
+                            className={`px-3 py-1 rounded text-xs ${
+                              selectedPlayers.includes(player.id)
+                                ? "bg-green-600 text-white"
+                                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                            }`}
+                          >
+                            {selectedPlayers.includes(player.id)
+                              ? "Selected"
+                              : "Select"}
+                          </button>
+                        )}
+                      {/* Debug info for drafting */}
+                      {draftingMode && (
+                        <div className="text-xs text-gray-500">
+                          Draft: {draftingMode ? "ON" : "OFF"} | CanDraft:{" "}
+                          {canCurrentUserDraft() ? "YES" : "NO"} | Status:{" "}
+                          {player.status} | Team: {player.team || "None"}
+                        </div>
                       )}
+
+                      {/* Captain Assignment Button */}
+                      {showCaptainButton &&
+                        (isAdmin || player.id === myMembershipId) && (
+                          <button
+                            className="ml-auto px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
+                            onClick={() =>
+                              handleBeCaptain(player.id, !team1Captain ? 1 : 2)
+                            }
+                          >
+                            {captainButtonText}
+                          </button>
+                        )}
+                    </div>
                   </div>
                 );
               });
@@ -611,12 +751,14 @@ const GameDayPage = () => {
         </div>
 
         {/* Play Ball Button */}
-        <button
-          onClick={handlePlayBall}
-          className="w-full py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white"
-        >
-          Play Ball
-        </button>
+        {canShowPlayBallButton() && (
+          <button
+            onClick={handlePlayBall}
+            className="w-full py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white"
+          >
+            Play Ball
+          </button>
+        )}
       </div>
     </div>
   );

@@ -4,6 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from datetime import datetime, timedelta
+try:
+    from zoneinfo import ZoneInfo
+    MOUNTAIN_TZ = ZoneInfo("America/Denver")
+except ImportError:
+    import pytz
+    MOUNTAIN_TZ = pytz.timezone("America/Denver")
 import calendar
 import logging
 
@@ -45,7 +51,7 @@ def get_game_day_info(
         )
     
     # Check if today is a playing day
-    today = datetime.now()
+    today = datetime.now(MOUNTAIN_TZ)
     today_num = today.weekday()  
     playing_days = [int(day.strip()) for day in sport_group.playing_days.split(",") if day.strip().isdigit()]
     is_playing_day = today_num in playing_days
@@ -112,7 +118,7 @@ def get_game_day_players(
     ).all()
     
     # Get current game if exists
-    today = datetime.now()
+    today = datetime.now(MOUNTAIN_TZ)
     current_game = db.query(Game).filter(
         and_(
             Game.sport_group_id == sport_group_id,
@@ -186,7 +192,7 @@ def check_in_player_game_day(
         )
     
     # Check if check-in is enabled (1 hour before game start)
-    today = datetime.now()
+    today = datetime.now(MOUNTAIN_TZ)
     game_start_time = sport_group.game_start_time
     check_in_start_time = datetime.combine(today.date(), game_start_time.time()) - timedelta(hours=1)
     
@@ -237,7 +243,7 @@ def check_in_player_game_day(
     # Create or update game player
     if existing_player:
         existing_player.status = PlayerStatus.ARRIVED
-        existing_player.arrival_time = datetime.utcnow()
+        existing_player.arrival_time = datetime.now(MOUNTAIN_TZ)
         game_player = existing_player
         print(f"Updated existing player {membership.user.full_name} to ARRIVED")
     else:
@@ -245,7 +251,7 @@ def check_in_player_game_day(
             game_id=current_game.id,
             member_id=membership.id,
             status=PlayerStatus.ARRIVED,
-            arrival_time=datetime.utcnow()
+            arrival_time=datetime.now(MOUNTAIN_TZ)
         )
         db.add(game_player)
         print(f"Created new player record for {membership.user.full_name} with status ARRIVED")
@@ -304,6 +310,13 @@ def check_in_player_game_day(
         
         if team_players < sport_group.max_players_per_team:
             game_player.team_id = team.id
+            
+            # For teams 3 and above, the first player assigned becomes the captain
+            if team_number >= 3 and not team.captain_id:
+                team.captain_id = game_player.member_id
+                game_player.is_captain = True
+                print(f"Auto-assigned {game_player.member.user.full_name} as captain of Team {team_number}")
+            
             db.commit()
     
     return {"message": "Player checked in successfully", "player_id": game_player.id}
@@ -327,7 +340,7 @@ def assign_captains(
     ).first()
 
     # Get current game
-    today = datetime.now()
+    today = datetime.now(MOUNTAIN_TZ)
     current_game = db.query(Game).filter(
         and_(
             Game.sport_group_id == sport_group_id,
@@ -419,7 +432,7 @@ def select_team_players(
 ):
     """Captains select players for their teams"""
     # Get current game
-    today = datetime.now()
+    today = datetime.now(MOUNTAIN_TZ)
     current_game = db.query(Game).filter(
         and_(
             Game.sport_group_id == sport_group_id,
@@ -451,9 +464,19 @@ def select_team_players(
             continue
         
         # Check if current user is captain of this team
-        if team.captain_id != current_user.id:
+        membership = db.query(SportGroupMember).filter(
+            and_(
+                SportGroupMember.sport_group_id == sport_group_id,
+                SportGroupMember.user_id == current_user.id
+            )
+        ).first()
+        
+        if not membership:
+            raise ForbiddenException("User not found in sport group")
+            
+        if team.captain_id != membership.id:
             # Check if user is admin
-            membership = db.query(SportGroupMember).filter(
+            admin_membership = db.query(SportGroupMember).filter(
                 and_(
                     SportGroupMember.sport_group_id == sport_group_id,
                     SportGroupMember.user_id == current_user.id,
@@ -461,7 +484,7 @@ def select_team_players(
                 )
             ).first()
             
-            if not membership:
+            if not admin_membership:
                 raise ForbiddenException("Only team captains or admins can select players")
         
         # Add players to team (respecting max players per team)

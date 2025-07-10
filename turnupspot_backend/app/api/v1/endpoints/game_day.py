@@ -67,7 +67,11 @@ def get_game_day_info(
     
     # Check if check-in should be enabled (1 hour before game start)
     game_start_time = sport_group.game_start_time
-    check_in_start_time = datetime.combine(today.date(), game_start_time.time()) - timedelta(hours=1)
+    try:
+        check_in_start_time = datetime.combine(today.date(), game_start_time.time(), tzinfo=MOUNTAIN_TZ) - timedelta(hours=1)
+    except TypeError:
+        # For pytz
+        check_in_start_time = MOUNTAIN_TZ.localize(datetime.combine(today.date(), game_start_time.time())) - timedelta(hours=1)
     check_in_enabled = today >= check_in_start_time
     
     # Get game day info
@@ -194,7 +198,10 @@ def check_in_player_game_day(
     # Check if check-in is enabled (1 hour before game start)
     today = datetime.now(MOUNTAIN_TZ)
     game_start_time = sport_group.game_start_time
-    check_in_start_time = datetime.combine(today.date(), game_start_time.time()) - timedelta(hours=1)
+    try:
+        check_in_start_time = datetime.combine(today.date(), game_start_time.time(), tzinfo=MOUNTAIN_TZ) - timedelta(hours=1)
+    except TypeError:
+        check_in_start_time = MOUNTAIN_TZ.localize(datetime.combine(today.date(), game_start_time.time())) - timedelta(hours=1)
     
     if today < check_in_start_time:
         raise HTTPException(

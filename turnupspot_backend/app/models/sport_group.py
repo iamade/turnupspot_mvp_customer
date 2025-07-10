@@ -1,8 +1,8 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Float, Time
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
-from datetime import datetime
+from datetime import datetime, date
 
 from app.core.database import Base
 
@@ -55,9 +55,9 @@ class SportGroup(Base):
     venue_image_url = Column(String)
     venue_latitude = Column(Float)
     venue_longitude = Column(Float)
-    playing_days = Column(String, nullable=False)  # Comma-separated days
-    game_start_time = Column(DateTime, nullable=False)
-    game_end_time = Column(DateTime, nullable=False)
+    playing_days = Column(String, default="0,2,4")  # e.g., "0,2,4" for Mon, Wed, Fri
+    game_start_time = Column(Time, nullable=False)
+    game_end_time = Column(Time, nullable=False)
     max_teams = Column(Integer, nullable=False)
     max_players_per_team = Column(Integer, nullable=False)
     rules = Column(String)
@@ -84,6 +84,12 @@ class SportGroup(Base):
 
     def __repr__(self):
         return f"<SportGroup(id={self.id}, name='{self.name}', sport='{self.sports_type}')>"
+
+    def is_playing_day(self, today: date) -> bool:
+        if not self.playing_days:
+            return False  # or True if you want every day to be a playing day by default
+        playing_days = [int(d) for d in self.playing_days.split(",") if d.strip().isdigit()]
+        return today.weekday() in playing_days
 
 
 class SportGroupMember(Base):

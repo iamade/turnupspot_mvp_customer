@@ -4,6 +4,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from contextlib import asynccontextmanager
+from .celery_app import celery_app
 
 from app.core.config import settings
 from app.core.database import engine, Base

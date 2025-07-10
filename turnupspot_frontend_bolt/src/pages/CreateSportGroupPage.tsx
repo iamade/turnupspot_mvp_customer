@@ -1,5 +1,5 @@
-import React from 'react';
-import CreateSportGroupForm from '../components/sports/CreateSportGroupForm';
+import React from "react";
+import CreateSportGroupForm from "../components/sports/CreateSportGroupForm";
 
 const CreateSportGroupPage: React.FC = () => {
   return (

@@ -11,6 +11,7 @@ import InviteMemberPage from "./pages/InviteMemberPage";
 import GameDayPage from "./pages/GameDayPage";
 import LiveMatchPage from "./pages/LiveMatchPage";
 import CreateSportGroupPage from "./pages/CreateSportGroupPage";
+import EditSportGroupPage from "./pages/EditSportGroupPage"; // New import
 import EventsPage from "./pages/EventsPage";
 import VendorsPage from "./pages/VendorsPage";
 import SignupPage from "./pages/SignupPage";
@@ -62,6 +63,7 @@ function App() {
             />
             <Route path="/sports/groups/:id/chat" element={<GroupChatPage />} />
             <Route path="/sports/create" element={<CreateSportGroupPage />} />
+            <Route path="/my-sports-groups/:id/edit" element={<EditSportGroupPage />} /> {/* New Route */}
             <Route path="/events" element={<EventsPage />} />
             <Route path="/vendors" element={<VendorsPage />} />
             <Route path="/signup" element={<SignupPage />} />

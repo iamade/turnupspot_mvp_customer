@@ -161,6 +161,9 @@ const SportGroupDetailsPage: React.FC = () => {
   ];
 
   const isGameDay = true;
+  const isAdmin =
+    group?.current_user_membership?.role === "admin" ||
+    group?.current_user_membership?.is_creator;
 
   return (
     <div className="space-y-8 max-w-2xl mx-auto px-4">
@@ -186,13 +189,17 @@ const SportGroupDetailsPage: React.FC = () => {
         </div>
 
         <div className="p-6 relative">
-          <div className="flex justify-between items-start">
+          <div className="flex justify-between items-center mb-2">
             <div>
-              <h1 className="text-3xl font-bold">{group.name}</h1>
-              <p className="text-gray-600 mt-2">{group.description}</p>
-              <p className="text-gray-500 mt-1">
-                <span className="font-medium">Venue:</span> {group.venue_name}
-              </p>
+              <h1 className="text-3xl font-bold inline-block">{group.name}</h1>
+              {isAdmin && (
+                <button
+                  className="ml-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 inline-block"
+                  onClick={() => navigate(`/sports/groups/${group.id}/edit`)}
+                >
+                  Update Group
+                </button>
+              )}
             </div>
             <div className="space-x-4">
               {group?.current_user_membership?.is_member ? (

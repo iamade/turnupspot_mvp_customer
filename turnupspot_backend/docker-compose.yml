@@ -1,6 +1,8 @@
 services:
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: turnupspot_backend
     ports:
       - "8000:8000"
@@ -35,14 +37,36 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
-  # adminer:
-  #   image: adminer
-  #   restart: always
-  #   ports:
-  #     - "8080:8080"
-  #   depends_on:
-  #     - db
+      - redis_data:/data  
+    
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.celery_app.celery_app worker --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql://postgres.vwawhztoptaxbejmtfnw:KgtKZoZ9VQik6T5K@aws-0-ca-central-1.pooler.supabase.com:5432/postgres
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile  
+    command: celery -A app.celery_app.celery_app beat --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql://postgres.vwawhztoptaxbejmtfnw:KgtKZoZ9VQik6T5K@aws-0-ca-central-1.pooler.supabase.com:5432/postgres
+      
 volumes:
   postgres_data:
   mongo_data:

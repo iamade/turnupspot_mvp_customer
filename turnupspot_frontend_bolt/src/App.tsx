@@ -58,12 +58,16 @@ function App() {
               element={<GameDayPage />}
             />
             <Route
-              path="/sports/groups/:id/live-match"
+              path="/my-sports-groups/:id/live-match"
               element={<LiveMatchPage />}
             />
             <Route path="/sports/groups/:id/chat" element={<GroupChatPage />} />
             <Route path="/sports/create" element={<CreateSportGroupPage />} />
-            <Route path="/my-sports-groups/:id/edit" element={<EditSportGroupPage />} /> {/* New Route */}
+            <Route
+              path="/my-sports-groups/:id/edit"
+              element={<EditSportGroupPage />}
+            />{" "}
+            {/* New Route */}
             <Route path="/events" element={<EventsPage />} />
             <Route path="/vendors" element={<VendorsPage />} />
             <Route path="/signup" element={<SignupPage />} />

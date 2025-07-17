@@ -1,6 +1,6 @@
 # turnupspot_backend/app/api/v1/endpoints/game_day.py
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional, Dict
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from datetime import datetime, timedelta
@@ -19,6 +19,8 @@ from app.models.user import User
 from app.models.sport_group import SportGroupMember, MemberRole, SportGroup
 from app.models.game import Game, GameTeam, GamePlayer, GameStatus, PlayerStatus
 from app.core.exceptions import ForbiddenException
+from app.models.manual_checkin import GameDayParticipant
+from app.schemas.manual_checkin import GameDayParticipantCreate, GameDayParticipantOut
 
 router = APIRouter()
 
@@ -68,10 +70,10 @@ def get_game_day_info(
     # Check if check-in should be enabled (1 hour before game start)
     game_start_time = sport_group.game_start_time
     try:
-        check_in_start_time = datetime.combine(today.date(), game_start_time.time(), tzinfo=MOUNTAIN_TZ) - timedelta(hours=1)
+        check_in_start_time = datetime.combine(today.date(), game_start_time, tzinfo=MOUNTAIN_TZ) - timedelta(hours=1)
     except TypeError:
         # For pytz
-        check_in_start_time = MOUNTAIN_TZ.localize(datetime.combine(today.date(), game_start_time.time())) - timedelta(hours=1)
+        check_in_start_time = MOUNTAIN_TZ.localize(datetime.combine(today.date(), game_start_time)) - timedelta(hours=1)
     check_in_enabled = today >= check_in_start_time
     
     # Get game day info
@@ -91,6 +93,11 @@ def get_game_day_info(
         "venue_radius": 100  # Default radius in meters
     }
     
+    # Add current_user_membership info
+    game_day_info["current_user_membership"] = {
+        "role": membership.role.value if hasattr(membership.role, 'value') else membership.role,
+        "is_creator": sport_group.creator_id == current_user.id
+    }
     return game_day_info
 
 
@@ -199,9 +206,9 @@ def check_in_player_game_day(
     today = datetime.now(MOUNTAIN_TZ)
     game_start_time = sport_group.game_start_time
     try:
-        check_in_start_time = datetime.combine(today.date(), game_start_time.time(), tzinfo=MOUNTAIN_TZ) - timedelta(hours=1)
+        check_in_start_time = datetime.combine(today.date(), game_start_time, tzinfo=MOUNTAIN_TZ) - timedelta(hours=1)
     except TypeError:
-        check_in_start_time = MOUNTAIN_TZ.localize(datetime.combine(today.date(), game_start_time.time())) - timedelta(hours=1)
+        check_in_start_time = MOUNTAIN_TZ.localize(datetime.combine(today.date(), game_start_time)) - timedelta(hours=1)
     
     if today < check_in_start_time:
         raise HTTPException(
@@ -223,8 +230,8 @@ def check_in_player_game_day(
         current_game = Game(
             sport_group_id=sport_group_id,
             game_date=today.date(),
-            start_time=datetime.combine(today.date(), game_start_time.time()),
-            end_time=datetime.combine(today.date(), sport_group.game_end_time.time()),
+            start_time=datetime.combine(today.date(), game_start_time),
+            end_time=datetime.combine(today.date(), sport_group.game_end_time),
             status=GameStatus.SCHEDULED
         )
         db.add(current_game)
@@ -522,3 +529,207 @@ def select_team_players(
     db.commit()
     
     return {"message": "Players selected for teams successfully"}
+
+
+@router.post("/{sport_group_id}/manual-check-in", response_model=List[GameDayParticipantOut])
+def manual_check_in(
+    sport_group_id: str,
+    players: List[GameDayParticipantCreate] = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Check if user is group admin or creator
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == sport_group_id,
+            SportGroupMember.user_id == current_user.id,
+            SportGroupMember.is_approved == True
+        )
+    ).first()
+    sport_group = db.query(SportGroup).filter(SportGroup.id == sport_group_id).first()
+    if not membership or not sport_group:
+        raise ForbiddenException("Only group admins can check in players")
+    is_admin = (membership.role == MemberRole.ADMIN or sport_group.creator_id == current_user.id)
+    if not is_admin:
+        raise ForbiddenException("Only group admins can check in players")
+    # Get today's game
+    today = datetime.now(MOUNTAIN_TZ)
+    current_game = db.query(Game).filter(
+        and_(
+            Game.sport_group_id == sport_group_id,
+            Game.game_date == today.date(),
+            Game.status.in_([GameStatus.SCHEDULED, GameStatus.IN_PROGRESS])
+        )
+    ).first()
+    if not current_game:
+        raise HTTPException(status_code=404, detail="No game scheduled for today")
+    # Create participants
+    created = []
+    for player in players:
+        participant = GameDayParticipant(
+            game_id=current_game.id,
+            name=player.name,
+            email=player.email,
+            phone=player.phone,
+            is_registered_user=False
+        )
+        db.add(participant)
+        created.append(participant)
+    db.commit()
+    for p in created:
+        db.refresh(p)
+    return created
+
+
+@router.get("/{sport_group_id}/manual-participants", response_model=List[GameDayParticipantOut])
+def get_manual_participants(
+    sport_group_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Check if user is member of the sport group
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == sport_group_id,
+            SportGroupMember.user_id == current_user.id,
+            SportGroupMember.is_approved == True
+        )
+    ).first()
+    if not membership:
+        raise ForbiddenException("Only group members can view manual check-in participants")
+    # Get today's game
+    today = datetime.now(MOUNTAIN_TZ)
+    current_game = db.query(Game).filter(
+        and_(
+            Game.sport_group_id == sport_group_id,
+            Game.game_date == today.date(),
+            Game.status.in_([GameStatus.SCHEDULED, GameStatus.IN_PROGRESS])
+        )
+    ).first()
+    if not current_game:
+        return []
+    participants = db.query(GameDayParticipant).filter(GameDayParticipant.game_id == current_game.id).all()
+    return participants
+
+
+@router.post("/{sport_group_id}/manual-participants/assign-teams")
+def assign_teams_manual_participants(
+    sport_group_id: str,
+    assignments: Dict[int, list[int]] = Body(...),  # {team_number: [participant_ids]}
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Check if user is group admin or creator
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == sport_group_id,
+            SportGroupMember.user_id == current_user.id,
+            SportGroupMember.is_approved == True
+        )
+    ).first()
+    sport_group = db.query(SportGroup).filter(SportGroup.id == sport_group_id).first()
+    if not membership or not sport_group:
+        raise ForbiddenException("Only group admins can assign teams")
+    is_admin = (membership.role == MemberRole.ADMIN or sport_group.creator_id == current_user.id)
+    if not is_admin:
+        raise ForbiddenException("Only group admins can assign teams")
+    # Get today's game
+    today = datetime.now(MOUNTAIN_TZ)
+    current_game = db.query(Game).filter(
+        and_(
+            Game.sport_group_id == sport_group_id,
+            Game.game_date == today.date(),
+            Game.status.in_([GameStatus.SCHEDULED, GameStatus.IN_PROGRESS])
+        )
+    ).first()
+    if not current_game:
+        raise HTTPException(status_code=404, detail="No game scheduled for today")
+    # Get all manual participants for this game, ordered by arrival
+    all_participants = db.query(GameDayParticipant).filter(
+        GameDayParticipant.game_id == current_game.id
+    ).order_by(GameDayParticipant.created_at.asc()).all()
+    first_10_ids = set(p.id for p in all_participants[:10])
+    # Enforce: Only first 10 arrivals can be assigned to Team 1 or 2
+    for team_number, participant_ids in assignments.items():
+        if team_number in [1, 2]:
+            for pid in participant_ids:
+                if pid not in first_10_ids:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Only the first 10 arrivals can be assigned to Team 1 or 2. Participant ID {pid} is not allowed."
+                    )
+    # Assign teams
+    updated = []
+    for team_number, participant_ids in assignments.items():
+        for pid in participant_ids:
+            participant = db.query(GameDayParticipant).filter(GameDayParticipant.id == pid).first()
+            if participant:
+                participant.team = team_number
+                updated.append(participant)
+    db.commit()
+    for p in updated:
+        db.refresh(p)
+    return {"success": True, "updated": [p.id for p in updated]}
+
+
+@router.post("/{sport_group_id}/manual-participants/auto-assign-teams", response_model=List[GameDayParticipantOut])
+def auto_assign_manual_participants(
+    sport_group_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Check if user is group admin or creator
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == sport_group_id,
+            SportGroupMember.user_id == current_user.id,
+            SportGroupMember.is_approved == True
+        )
+    ).first()
+    sport_group = db.query(SportGroup).filter(SportGroup.id == sport_group_id).first()
+    if not membership or not sport_group:
+        raise ForbiddenException("Only group admins can auto-assign teams")
+    is_admin = (membership.role == MemberRole.ADMIN or sport_group.creator_id == current_user.id)
+    if not is_admin:
+        raise ForbiddenException("Only group admins can auto-assign teams")
+    # Get today's game
+    today = datetime.now(MOUNTAIN_TZ)
+    current_game = db.query(Game).filter(
+        and_(
+            Game.sport_group_id == sport_group_id,
+            Game.game_date == today.date(),
+            Game.status.in_([GameStatus.SCHEDULED, GameStatus.IN_PROGRESS])
+        )
+    ).first()
+    if not current_game:
+        raise HTTPException(status_code=404, detail="No game scheduled for today")
+    # Get all manual participants for this game who do not have a team
+    unassigned = db.query(GameDayParticipant).filter(
+        GameDayParticipant.game_id == current_game.id,
+        GameDayParticipant.team == None
+    ).order_by(GameDayParticipant.created_at.asc()).all()
+    # Start assigning from team 3
+    team_number = 3
+    max_teams = sport_group.max_teams
+    max_players_per_team = sport_group.max_players_per_team
+    # Get current team counts for teams 3+
+    team_counts = {i: db.query(GameDayParticipant).filter(
+        GameDayParticipant.game_id == current_game.id,
+        GameDayParticipant.team == i
+    ).count() for i in range(3, max_teams+1)}
+    for participant in unassigned:
+        # Find the next team with available slot
+        assigned = False
+        for t in range(3, max_teams+1):
+            if team_counts[t] < max_players_per_team:
+                participant.team = t
+                team_counts[t] += 1
+                assigned = True
+                break
+        if not assigned:
+            # All teams are full, stop assigning
+            break
+    db.commit()
+    # Return all manual participants
+    participants = db.query(GameDayParticipant).filter(GameDayParticipant.game_id == current_game.id).all()
+    return participants

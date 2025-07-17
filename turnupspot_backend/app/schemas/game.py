@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -95,7 +95,7 @@ class GameUpdate(BaseModel):
     weather_conditions: Optional[str] = None
 
 
-class GameResponse(GameBase):
+class GameResponse(BaseModel):
     id: int
     sport_group_id: int
     status: GameStatus
@@ -105,6 +105,11 @@ class GameResponse(GameBase):
     updated_at: Optional[datetime] = None
     teams: Optional[List[GameTeamResponse]] = []
     players: Optional[List[GamePlayerResponse]] = []
+    completed_matches: Optional[List[Dict[str, Any]]] = None
+    current_match: Optional[Dict[str, Any]] = None
+    upcoming_match: Optional[Dict[str, Any]] = None
+    coin_toss_state: Optional[Dict[str, Any]] = None
+    referee_id: Optional[int] = None
 
     class Config:
         from_attributes = True

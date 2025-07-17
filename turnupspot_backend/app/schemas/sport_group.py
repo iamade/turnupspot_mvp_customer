@@ -1,6 +1,6 @@
 from typing import Optional, List
 from pydantic import BaseModel, validator, Field
-from datetime import datetime
+from datetime import datetime, time
 
 from app.models.sport_group import SportsType, MemberRole
 
@@ -12,8 +12,8 @@ class SportGroupBase(BaseModel):
     venue_address: str
     venue_image_url: Optional[str] = None
     playing_days: str
-    game_start_time: datetime
-    game_end_time: datetime
+    game_start_time: time
+    game_end_time: time
     max_teams: int = Field(gt=0)
     max_players_per_team: int = Field(gt=0)
     rules: Optional[str] = None
@@ -44,8 +44,8 @@ class SportGroupUpdate(BaseModel):
     venue_address: Optional[str] = None
     venue_image_url: Optional[str] = None
     playing_days: Optional[str] = None
-    game_start_time: Optional[datetime] = None
-    game_end_time: Optional[datetime] = None
+    game_start_time: Optional[time] = None
+    game_end_time: Optional[time] = None
     max_teams: Optional[int] = Field(None, gt=0)
     max_players_per_team: Optional[int] = Field(None, gt=0)
     rules: Optional[str] = None

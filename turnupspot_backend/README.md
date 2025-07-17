@@ -355,3 +355,6 @@ Make sure to set the correct environment variables for database and service conn
 - `/api/v1/sport-groups/stats/reject/{stat_idx}`: Reject stat
 
 See the OpenAPI docs at `/docs` for full API details.
+
+
+# run for debgu docker exec -it turnupspot_backend sh

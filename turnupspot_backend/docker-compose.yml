@@ -6,24 +6,37 @@ services:
     container_name: turnupspot_backend
     ports:
       - "8000:8000"
-
+    environment:
+      - DATABASE_URL=postgresql://postgres:1234@db:5432/turnupspot
+      # - DATABASE_URL=postgresql://postgres:i%40mTurnupspot2025@db.vwawhztoptaxbejmtfnw.supabase.co:5432/turnupspot
+      - MONGODB_URI=mongodb://mongo:27017
+      - MONGODB_DB_NAME=turnupspot
+      - REDIS_URL=redis://redis:6379/0
+      - MAIL_USERNAME=support@turnupspot.com
+      - MAIL_PASSWORD=ccrpznjdwjvmknlk
+      - MAIL_FROM=support@turnupspot.com
+      - MAIL_PORT=587
+      - MAIL_SERVER=smtp-mail.outlook.com
+      - MAIL_STARTTLS=True
+      - MAIL_SSL_TLS=False
+      - USE_CREDENTIALS=True
     depends_on:
-      # - db
+      - db
       - mongo
       - redis
     volumes:
       - .:/app
-  # db:
-  #   image: postgres:15
-  #   restart: always
-  #   environment:
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: 1234
-  #     POSTGRES_DB: turnupspot
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: turnupspot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
   mongo:
     image: mongo:6
     restart: always
@@ -51,7 +64,7 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres.vwawhztoptaxbejmtfnw:KgtKZoZ9VQik6T5K@aws-0-ca-central-1.pooler.supabase.com:5432/postgres
+      - DATABASE_URL=postgresql://postgres:1234@db:5432/turnupspot
 
   celery_beat:
     build:
@@ -65,8 +78,16 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - DATABASE_URL=postgresql://postgres.vwawhztoptaxbejmtfnw:KgtKZoZ9VQik6T5K@aws-0-ca-central-1.pooler.supabase.com:5432/postgres
+      - DATABASE_URL=postgresql://postgres:1234@db:5432/turnupspot
       
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
 volumes:
   postgres_data:
   mongo_data:

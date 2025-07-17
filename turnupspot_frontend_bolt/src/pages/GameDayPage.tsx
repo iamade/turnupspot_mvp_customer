@@ -4,6 +4,14 @@ import { ArrowLeft, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { get, post } from "../api";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "react-toastify";
+import ManualCheckinForm from "../components/events/CreateEventForm";
+
+// Add PlayerData type for manual check-in
+interface PlayerData {
+  name: string;
+  email: string;
+  phone: string;
+}
 
 interface Player {
   id: string;
@@ -30,6 +38,10 @@ interface GameDayInfo {
   venue_latitude: number;
   venue_longitude: number;
   venue_radius: number;
+  current_user_membership?: {
+    role: string;
+    is_creator: boolean;
+  };
 }
 
 interface BackendPlayer {
@@ -40,6 +52,16 @@ interface BackendPlayer {
   is_captain?: boolean;
   team?: number;
   user_id?: number; // user_id is a number from backend
+}
+
+interface ManualParticipant {
+  id: number;
+  name: string;
+  email?: string;
+  phone?: string;
+  is_registered_user: boolean;
+  created_at: string;
+  team?: number;
 }
 
 const GameDayPage = () => {
@@ -59,14 +81,54 @@ const GameDayPage = () => {
     radius: number;
   } | null>(null);
   const { token, user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  // Replace the isAdmin assignment with group admin logic
+  const isAdmin =
+    user?.role === "admin" ||
+    gameDayInfo?.current_user_membership?.role === "admin" ||
+    gameDayInfo?.current_user_membership?.is_creator;
   const [myMembershipId, setMyMembershipId] = useState<string | null>(null);
   const [draftingMode, setDraftingMode] = useState(false);
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
   const [draftingTurn, setDraftingTurn] = useState<number>(1); // 1 = Team 1, 2 = Team 2, etc.
+  const [checkinMode, setCheckinMode] = useState<"manual" | "automatic">(
+    "manual"
+  );
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [manualParticipants, setManualParticipants] = useState<
+    ManualParticipant[]
+  >([]);
+  // Add selectedManualParticipants and drafting state for manual mode
+  const [selectedManualParticipants, setSelectedManualParticipants] = useState<
+    number[]
+  >([]);
+  const [manualDraftingTurn, setManualDraftingTurn] = useState<number>(1);
+  const [manualDraftingMode, setManualDraftingMode] = useState(false);
+  const [autoAssigning, setAutoAssigning] = useState(false);
+
+  // Manual Arrival Pagination
+  const [manualArrivalPage, setManualArrivalPage] = useState(1);
+  const manualArrivalsPerPage = 8;
+  const paginatedManualParticipants = manualParticipants.slice(
+    (manualArrivalPage - 1) * manualArrivalsPerPage,
+    manualArrivalPage * manualArrivalsPerPage
+  );
+  const manualArrivalTotalPages = Math.ceil(
+    manualParticipants.length / manualArrivalsPerPage
+  );
+
+  // Team Formation Pagination
+  const [teamPage, setTeamPage] = useState(1);
+  const teamsPerPage = 5;
+  const totalTeams = gameDayInfo?.max_teams || 2;
+  const teamPages = Math.ceil(totalTeams / teamsPerPage);
+  const paginatedTeamNumbers = Array.from(
+    { length: totalTeams },
+    (_, i) => i + 1
+  ).slice((teamPage - 1) * teamsPerPage, teamPage * teamsPerPage);
 
   useEffect(() => {
     fetchGameDayData();
+    fetchManualParticipants();
   }, [id]);
 
   const fetchGameDayData = async () => {
@@ -137,6 +199,19 @@ const GameDayPage = () => {
       console.error("Error fetching game day data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchManualParticipants = async () => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const res = await get<ManualParticipant[]>(
+        `/games/game-day/${id}/manual-participants`,
+        { headers }
+      );
+      setManualParticipants(res.data);
+    } catch {
+      setManualParticipants([]);
     }
   };
 
@@ -246,6 +321,7 @@ const GameDayPage = () => {
 
       // Refresh data after successful check-in
       await fetchGameDayData();
+      await fetchManualParticipants(); // Refresh manual participants
 
       setIsAtVenue(true);
       setCheckinError("");
@@ -255,6 +331,24 @@ const GameDayPage = () => {
       setCheckinError(errorMessage);
     } finally {
       setCheckInLoading(false);
+    }
+  };
+
+  const handleManualCheckinSubmit = async (players: PlayerData[]) => {
+    setManualSubmitting(true);
+    try {
+      await post(`/games/game-day/${id}/manual-check-in`, players);
+      toast.success("Players checked in successfully!");
+      await fetchGameDayData();
+      await fetchManualParticipants(); // Refresh manual participants
+      setCheckinError("");
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to check in players";
+      setCheckinError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setManualSubmitting(false);
     }
   };
 
@@ -328,8 +422,9 @@ const GameDayPage = () => {
 
   const handlePlayBall = () => {
     // Check if teams are ready and referee is present
-    navigate(`/sports/groups/${id}/live-match`);
+    navigate(`/my-sports-groups/${id}/live-match`);
   };
+
 
   // Team drafting functions
   const startDrafting = () => {
@@ -415,6 +510,13 @@ const GameDayPage = () => {
   const canShowPlayBallButton = () => {
     if (!gameDayInfo?.is_playing_day) return false;
 
+    if (checkinMode === "manual") {
+      // Only show if both Team 1 and Team 2 have at least one player
+      const team1HasPlayer = manualParticipants.some((p) => p.team === 1);
+      const team2HasPlayer = manualParticipants.some((p) => p.team === 2);
+      return team1HasPlayer && team2HasPlayer;
+    }
+
     // Check if there are at least 2 teams with players
     const teamsWithPlayers = new Set(
       players.filter((p) => p.team).map((p) => p.team)
@@ -428,6 +530,77 @@ const GameDayPage = () => {
     const currentPlayer = players.find((p) => p.id === myMembershipId);
     return currentPlayer?.isCaptain || false;
   };
+
+  // Manual drafting functions
+  const startManualDrafting = () => {
+    setManualDraftingMode(true);
+    setManualDraftingTurn(1);
+    setSelectedManualParticipants([]);
+  };
+
+  const handleManualParticipantSelection = (participantId: number) => {
+    if (selectedManualParticipants.includes(participantId)) {
+      setSelectedManualParticipants(
+        selectedManualParticipants.filter((id) => id !== participantId)
+      );
+    } else {
+      setSelectedManualParticipants([
+        ...selectedManualParticipants,
+        participantId,
+      ]);
+    }
+  };
+
+  const handleDraftManualParticipants = async () => {
+    if (!id || selectedManualParticipants.length === 0) return;
+    try {
+      // Assign selected manual participants to the current team
+      await post(
+        `/games/game-day/${id}/manual-participants/assign-teams`,
+        { [manualDraftingTurn]: selectedManualParticipants },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+      // Move to next team's turn
+      if (manualDraftingTurn < (gameDayInfo?.max_teams || 2)) {
+        setManualDraftingTurn(manualDraftingTurn + 1);
+      } else {
+        setManualDraftingMode(false);
+        setManualDraftingTurn(1);
+      }
+      setSelectedManualParticipants([]);
+      await fetchManualParticipants();
+      toast.success("Manual participants drafted successfully!");
+    } catch {
+      toast.error("Failed to draft manual participants");
+    }
+  };
+
+  // Auto-assign remaining manual participants to teams 3+
+  const handleAutoAssignManualParticipants = async () => {
+    if (!id) return;
+    setAutoAssigning(true);
+    try {
+      await post(
+        `/games/game-day/${id}/manual-participants/auto-assign-teams`,
+        {},
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+      await fetchManualParticipants();
+      toast.success("Remaining players auto-assigned to teams!");
+    } catch {
+      toast.error("Failed to auto-assign remaining players");
+    } finally {
+      setAutoAssigning(false);
+    }
+  };
+
+  // Add a helper to format the arrival time (created_at)
+  function formatArrivalTime(dateTime: string): string {
+    if (!dateTime) return "";
+    // If ISO string, extract time part
+    const d = new Date(dateTime);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
 
   if (loading) {
     return (
@@ -474,7 +647,7 @@ const GameDayPage = () => {
 
         {/* Check-in Status */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-4">
               <MapPin
                 className={isAtVenue ? "text-green-600" : "text-gray-400"}
@@ -491,6 +664,36 @@ const GameDayPage = () => {
                 </p>
               </div>
             </div>
+            <div>
+              <button
+                className={`px-3 py-1 rounded-lg mr-2 ${
+                  checkinMode === "manual"
+                    ? "bg-purple-600 text-white"
+                    : "bg-gray-200 text-gray-700"
+                }`}
+                onClick={() => setCheckinMode("manual")}
+              >
+                Manual Check-in
+              </button>
+              <button
+                className={`px-3 py-1 rounded-lg ${
+                  checkinMode === "automatic"
+                    ? "bg-purple-600 text-white"
+                    : "bg-gray-200 text-gray-700"
+                }`}
+                onClick={() => setCheckinMode("automatic")}
+              >
+                Automatic Check-in
+              </button>
+            </div>
+          </div>
+          {checkinMode === "manual" && isAdmin && (
+            <ManualCheckinForm
+              onSubmit={handleManualCheckinSubmit}
+              submitting={manualSubmitting}
+            />
+          )}
+          {checkinMode === "automatic" && (
             <button
               onClick={handleManualCheckin}
               disabled={
@@ -510,7 +713,7 @@ const GameDayPage = () => {
                 ? "Checked In"
                 : "Check In"}
             </button>
-          </div>
+          )}
           {checkinError && (
             <p className="mt-2 text-sm text-red-600">{checkinError}</p>
           )}
@@ -532,7 +735,55 @@ const GameDayPage = () => {
                 <p className="text-gray-600">{getTeamFormationMessage()}</p>
 
                 {/* Drafting Controls */}
-                {!draftingMode &&
+                {checkinMode === "manual" &&
+                  !manualDraftingMode &&
+                  isAdmin &&
+                  manualParticipants.length > 0 && (
+                    <div className="mt-4 flex flex-col md:flex-row gap-2">
+                      <button
+                        onClick={startManualDrafting}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        Start Team Drafting
+                      </button>
+                      {/* Show auto-assign button if at least one player is assigned to both Team 1 and Team 2, and there are unassigned players */}
+                      {manualParticipants.some((p) => p.team === 1) &&
+                        manualParticipants.some((p) => p.team === 2) &&
+                        manualParticipants.some((p) => !p.team) && (
+                          <button
+                            onClick={handleAutoAssignManualParticipants}
+                            disabled={autoAssigning}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                          >
+                            {autoAssigning
+                              ? "Auto-Assigning..."
+                              : "Auto-Assign Remaining Players"}
+                          </button>
+                        )}
+                    </div>
+                  )}
+                {checkinMode === "manual" && manualDraftingMode && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                    <h3 className="font-semibold text-blue-800 mb-2">
+                      Team Drafting in Progress
+                    </h3>
+                    <p className="text-blue-600 text-sm">
+                      Drafting for Team {manualDraftingTurn}
+                    </p>
+                    {selectedManualParticipants.length > 0 && (
+                      <button
+                        onClick={handleDraftManualParticipants}
+                        className="mt-2 px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                      >
+                        Draft Selected Players (
+                        {selectedManualParticipants.length})
+                      </button>
+                    )}
+                  </div>
+                )}
+                {/* Automatic drafting controls remain unchanged */}
+                {checkinMode === "automatic" &&
+                  !draftingMode &&
                   (isAdmin || players.some((p) => p.isCaptain)) && (
                     <div className="mt-4">
                       <button
@@ -543,8 +794,7 @@ const GameDayPage = () => {
                       </button>
                     </div>
                   )}
-
-                {draftingMode && (
+                {checkinMode === "automatic" && draftingMode && (
                   <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                     <h3 className="font-semibold text-blue-800 mb-2">
                       Team Drafting in Progress
@@ -567,17 +817,23 @@ const GameDayPage = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {Array.from({ length: gameDayInfo?.max_teams || 2 }, (_, i) => {
-                  const teamNumber = i + 1;
-                  const teamPlayers = players.filter(
-                    (p) => p.team === teamNumber
-                  );
-                  const captain = teamPlayers.find((p) => p.isCaptain === true);
+                {paginatedTeamNumbers.map((teamNumber) => {
+                  let teamPlayers: (ManualParticipant | Player)[] = [];
+                  if (checkinMode === "manual") {
+                    teamPlayers = manualParticipants.filter(
+                      (p) => p.team === teamNumber
+                    );
+                  } else {
+                    teamPlayers = players.filter((p) => p.team === teamNumber);
+                  }
                   return (
                     <div key={teamNumber} className="border rounded-lg p-4">
                       <h3 className="font-semibold mb-2">Team {teamNumber}</h3>
                       <div className="text-sm font-medium text-purple-600">
-                        Captain: {captain ? captain.name : "Not assigned"}
+                        Captain:{" "}
+                        {teamPlayers.length > 0
+                          ? teamPlayers[0].name
+                          : "Not assigned"}
                       </div>
                       <div className="space-y-1">
                         {teamPlayers.map((member, idx) => (
@@ -590,165 +846,328 @@ const GameDayPage = () => {
                   );
                 })}
               </div>
-            </>
-          )}
-        </div>
-
-        {/* Player Arrival */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-6">Player Arrival</h2>
-          <div className="space-y-4">
-            {(() => {
-              // Sort by arrival time, then by status (arrived first)
-              const sortedPlayers = [...players].sort((a, b) => {
-                if (a.arrivalTime && b.arrivalTime) {
-                  return a.arrivalTime.localeCompare(b.arrivalTime);
-                }
-                return a.status === "arrived" ? -1 : 1;
-              });
-              // Get first 10 arrived players
-              const firstTenArrived = sortedPlayers
-                .filter((p) => p.status === "arrived")
-                .slice(0, 10);
-              // Find captains
-              const team1Captain = firstTenArrived.find(
-                (p) => p.isCaptain && p.team === 1
-              );
-              const team2Captain = firstTenArrived.find(
-                (p) => p.isCaptain && p.team === 2
-              );
-              return currentPlayers.map((player) => {
-                const isFirstTen = firstTenArrived.some(
-                  (p) => p.id === player.id
-                );
-                const isPlayerTeam1Captain =
-                  player.isCaptain && player.team === 1;
-                const isPlayerTeam2Captain =
-                  player.isCaptain && player.team === 2;
-                let showCaptainButton = false;
-                let captainButtonText = "";
-                if (
-                  isFirstTen &&
-                  !isPlayerTeam1Captain &&
-                  !isPlayerTeam2Captain
-                ) {
-                  if (!team1Captain) {
-                    showCaptainButton = true;
-                    captainButtonText = "Be captain of Team 1";
-                  } else if (!team2Captain) {
-                    showCaptainButton = true;
-                    captainButtonText = "Be captain of Team 2";
-                  }
-                }
-                return (
-                  <div
-                    key={player.id}
-                    className="flex items-center justify-between border-b pb-4 last:border-b-0"
+              {/* Team Pagination Controls */}
+              {teamPages > 1 && (
+                <div className="flex justify-between items-center mt-6">
+                  <button
+                    onClick={() => setTeamPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={teamPage === 1}
+                    className="px-3 py-1 border rounded-lg disabled:opacity-50"
                   >
-                    <div className="flex items-center space-x-4">
-                      <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden">
-                        {/* Player avatar would go here */}
-                      </div>
-                      <div>
-                        <h3 className="font-medium flex items-center gap-2">
-                          {player.name}
-                          {player.isCaptain && player.team && (
-                            <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
-                              Captain (Team {player.team})
+                    <ChevronLeft size={20} />
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    Page {teamPage} of {teamPages}
+                  </span>
+                  <button
+                    onClick={() =>
+                      setTeamPage((prev) => Math.min(prev + 1, teamPages))
+                    }
+                    disabled={teamPage === teamPages}
+                    className="px-3 py-1 border rounded-lg disabled:opacity-50"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
+              )}
+              {/* Manual drafting selection UI */}
+              {checkinMode === "manual" && manualDraftingMode && (
+                <div className="mt-6">
+                  <h3 className="font-semibold mb-2">
+                    Select Players for Team {manualDraftingTurn}
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(() => {
+                      // Sort manualParticipants by created_at (arrival order)
+                      const sortedManuals = [...manualParticipants]
+                        .filter((p) => !p.team)
+                        .sort(
+                          (a, b) =>
+                            new Date(a.created_at).getTime() -
+                            new Date(b.created_at).getTime()
+                        );
+                      let selectable: typeof sortedManuals = [];
+                      if (
+                        manualDraftingTurn === 1 ||
+                        manualDraftingTurn === 2
+                      ) {
+                        // Only first 10 arrivals can be assigned to Team 1 or 2
+                        selectable = sortedManuals.slice(0, 10);
+                      } else {
+                        // Only arrivals 11+ can be assigned to Team 3+
+                        selectable = sortedManuals.slice(10);
+                      }
+                      return selectable.map((participant) => (
+                        <div
+                          key={participant.id}
+                          className="flex items-center justify-between border-b pb-2"
+                        >
+                          <div>
+                            <span className="font-medium">
+                              {participant.name}
                             </span>
-                          )}
-                          {isFirstTen && (
-                            <span className="ml-2 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
-                              1st ten
+                            <span className="ml-2 text-xs text-gray-500">
+                              {participant.email}
                             </span>
-                          )}
-                        </h3>
-                        <div className="flex items-center space-x-2">
-                          <span
-                            className={`text-sm ${getStatusColor(
-                              player.status
-                            )}`}
-                          >
-                            {player.status}
-                          </span>
-                          {player.arrivalTime && (
-                            <span className="text-sm text-gray-500">
-                              • {player.arrivalTime}
+                            <span className="ml-2 text-xs text-gray-500">
+                              {participant.phone}
                             </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {/* Drafting Selection */}
-                      {draftingMode &&
-                        canCurrentUserDraft() &&
-                        player.status === "arrived" &&
-                        !player.team && (
+                          </div>
                           <button
-                            onClick={() => handlePlayerSelection(player.id)}
+                            onClick={() =>
+                              handleManualParticipantSelection(participant.id)
+                            }
                             className={`px-3 py-1 rounded text-xs ${
-                              selectedPlayers.includes(player.id)
+                              selectedManualParticipants.includes(
+                                participant.id
+                              )
                                 ? "bg-green-600 text-white"
                                 : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                             }`}
                           >
-                            {selectedPlayers.includes(player.id)
+                            {selectedManualParticipants.includes(participant.id)
                               ? "Selected"
                               : "Select"}
                           </button>
-                        )}
-                      {/* Debug info for drafting */}
-                      {draftingMode && (
-                        <div className="text-xs text-gray-500">
-                          Draft: {draftingMode ? "ON" : "OFF"} | CanDraft:{" "}
-                          {canCurrentUserDraft() ? "YES" : "NO"} | Status:{" "}
-                          {player.status} | Team: {player.team || "None"}
                         </div>
-                      )}
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
-                      {/* Captain Assignment Button */}
-                      {showCaptainButton &&
-                        (isAdmin || player.id === myMembershipId) && (
-                          <button
-                            className="ml-auto px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
-                            onClick={() =>
-                              handleBeCaptain(player.id, !team1Captain ? 1 : 2)
-                            }
-                          >
-                            {captainButtonText}
-                          </button>
+        {/* Player Arrival (Automatic) */}
+        {checkinMode === "automatic" && (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-xl font-bold mb-6">
+              Player Arrival (Automatic)
+            </h2>
+            <div className="space-y-4">
+              {(() => {
+                // Sort by arrival time, then by status (arrived first)
+                const sortedPlayers = [...players].sort((a, b) => {
+                  if (a.arrivalTime && b.arrivalTime) {
+                    return a.arrivalTime.localeCompare(b.arrivalTime);
+                  }
+                  return a.status === "arrived" ? -1 : 1;
+                });
+                // Get first 10 arrived players
+                const firstTenArrived = sortedPlayers
+                  .filter((p) => p.status === "arrived")
+                  .slice(0, 10);
+                // Find captains
+                const team1Captain = firstTenArrived.find(
+                  (p) => p.isCaptain && p.team === 1
+                );
+                const team2Captain = firstTenArrived.find(
+                  (p) => p.isCaptain && p.team === 2
+                );
+                return currentPlayers.map((player) => {
+                  const isFirstTen = firstTenArrived.some(
+                    (p) => p.id === player.id
+                  );
+                  const isPlayerTeam1Captain =
+                    player.isCaptain && player.team === 1;
+                  const isPlayerTeam2Captain =
+                    player.isCaptain && player.team === 2;
+                  let showCaptainButton = false;
+                  let captainButtonText = "";
+                  if (
+                    isFirstTen &&
+                    !isPlayerTeam1Captain &&
+                    !isPlayerTeam2Captain
+                  ) {
+                    if (!team1Captain) {
+                      showCaptainButton = true;
+                      captainButtonText = "Be captain of Team 1";
+                    } else if (!team2Captain) {
+                      showCaptainButton = true;
+                      captainButtonText = "Be captain of Team 2";
+                    }
+                  }
+                  return (
+                    <div
+                      key={player.id}
+                      className="flex items-center justify-between border-b pb-4 last:border-b-0"
+                    >
+                      <div className="flex items-center space-x-4">
+                        <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden">
+                          {/* Player avatar would go here */}
+                        </div>
+                        <div>
+                          <h3 className="font-medium flex items-center gap-2">
+                            {player.name}
+                            {player.isCaptain && player.team && (
+                              <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                                Captain (Team {player.team})
+                              </span>
+                            )}
+                            {isFirstTen && (
+                              <span className="ml-2 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                                1st ten
+                              </span>
+                            )}
+                          </h3>
+                          <div className="flex items-center space-x-2">
+                            <span
+                              className={`text-sm ${getStatusColor(
+                                player.status
+                              )}`}
+                            >
+                              {player.status}
+                            </span>
+                            {player.arrivalTime && (
+                              <span className="text-sm text-gray-500">
+                                • {player.arrivalTime}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {/* Drafting Selection */}
+                        {draftingMode &&
+                          canCurrentUserDraft() &&
+                          player.status === "arrived" &&
+                          !player.team && (
+                            <button
+                              onClick={() => handlePlayerSelection(player.id)}
+                              className={`px-3 py-1 rounded text-xs ${
+                                selectedPlayers.includes(player.id)
+                                  ? "bg-green-600 text-white"
+                                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                              }`}
+                            >
+                              {selectedPlayers.includes(player.id)
+                                ? "Selected"
+                                : "Select"}
+                            </button>
+                          )}
+                        {/* Debug info for drafting */}
+                        {draftingMode && (
+                          <div className="text-xs text-gray-500">
+                            Draft: {draftingMode ? "ON" : "OFF"} | CanDraft:{" "}
+                            {canCurrentUserDraft() ? "YES" : "NO"} | Status:{" "}
+                            {player.status} | Team: {player.team || "None"}
+                          </div>
                         )}
+
+                        {/* Captain Assignment Button */}
+                        {showCaptainButton &&
+                          (isAdmin || player.id === myMembershipId) && (
+                            <button
+                              className="ml-auto px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
+                              onClick={() =>
+                                handleBeCaptain(
+                                  player.id,
+                                  !team1Captain ? 1 : 2
+                                )
+                              }
+                            >
+                              {captainButtonText}
+                            </button>
+                          )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Pagination */}
+            <div className="flex justify-between items-center mt-6">
+              <button
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 border rounded-lg disabled:opacity-50"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <span className="text-sm text-gray-600">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 border rounded-lg disabled:opacity-50"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Player Arrival (Manual Check-in) */}
+        {checkinMode === "manual" && (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-xl font-bold mb-6">
+              Player Arrival (Manual Check-in)
+            </h2>
+            <div className="space-y-4">
+              {manualParticipants.length === 0 ? (
+                <div className="text-gray-500">No manual check-ins yet.</div>
+              ) : (
+                paginatedManualParticipants.map((participant) => (
+                  <div
+                    key={participant.id}
+                    className="flex items-center justify-between border-b pb-4 last:border-b-0"
+                  >
+                    <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden" />
+                    <div>
+                      <h3 className="font-medium flex items-center gap-2">
+                        {participant.name}
+                      </h3>
+                      <div className="flex items-center space-x-2 text-sm text-gray-500">
+                        {participant.email && <span>{participant.email}</span>}
+                        {participant.phone && (
+                          <span>• {participant.phone}</span>
+                        )}
+                        {participant.created_at && (
+                          <span className="text-sm text-gray-500">
+                            • {formatArrivalTime(participant.created_at)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                );
-              });
-            })()}
+                ))
+              )}
+            </div>
+            {/* Pagination Controls */}
+            {manualArrivalTotalPages > 1 && (
+              <div className="flex justify-between items-center mt-6">
+                <button
+                  onClick={() =>
+                    setManualArrivalPage((prev) => Math.max(prev - 1, 1))
+                  }
+                  disabled={manualArrivalPage === 1}
+                  className="px-3 py-1 border rounded-lg disabled:opacity-50"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {manualArrivalPage} of {manualArrivalTotalPages}
+                </span>
+                <button
+                  onClick={() =>
+                    setManualArrivalPage((prev) =>
+                      Math.min(prev + 1, manualArrivalTotalPages)
+                    )
+                  }
+                  disabled={manualArrivalPage === manualArrivalTotalPages}
+                  className="px-3 py-1 border rounded-lg disabled:opacity-50"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+            )}
           </div>
-
-          {/* Pagination */}
-          <div className="flex justify-between items-center mt-6">
-            <button
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1 border rounded-lg disabled:opacity-50"
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <span className="text-sm text-gray-600">
-              Page {currentPage} of {totalPages}
-            </span>
-            <button
-              onClick={() =>
-                setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-              }
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 border rounded-lg disabled:opacity-50"
-            >
-              <ChevronRight size={20} />
-            </button>
-          </div>
-        </div>
+        )}
 
         {/* Play Ball Button */}
         {canShowPlayBallButton() && (

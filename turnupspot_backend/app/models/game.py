@@ -1,9 +1,10 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Enum, Text
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Enum, Text, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
 
 from app.core.database import Base
+from app.models.manual_checkin import GameDayParticipant
 
 
 class GameStatus(str, enum.Enum):
@@ -23,7 +24,7 @@ class PlayerStatus(str, enum.Enum):
 class Game(Base):
     __tablename__ = "games"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True)
     sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
     
     # Game details
@@ -54,6 +55,11 @@ class Game(Base):
     assistant_referee = relationship("SportGroupMember", foreign_keys=[assistant_referee_id])
     teams = relationship("GameTeam", back_populates="game")
     players = relationship("GamePlayer", back_populates="game")
+    manual_participants = relationship("GameDayParticipant", back_populates="game")
+    completed_matches = Column(JSON, default=list)
+    current_match = Column(JSON, nullable=True)
+    upcoming_match = Column(JSON, nullable=True)
+    coin_toss_state = Column(JSON, nullable=True)
 
     def __repr__(self):
         return f"<Game(id={self.id}, sport_group_id={self.sport_group_id}, status='{self.status}')>"
@@ -63,7 +69,7 @@ class GameTeam(Base):
     __tablename__ = "game_teams"
 
     id = Column(Integer, primary_key=True, index=True)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
+    game_id = Column(String, ForeignKey("games.id"), nullable=False)
     team_name = Column(String, nullable=False)
     team_number = Column(Integer, nullable=False)  # 1, 2, 3, etc.
     captain_id = Column(Integer, ForeignKey("sport_group_members.id"), nullable=True)
@@ -89,7 +95,7 @@ class GamePlayer(Base):
     __tablename__ = "game_players"
 
     id = Column(Integer, primary_key=True, index=True)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
+    game_id = Column(String, ForeignKey("games.id"), nullable=False)
     team_id = Column(Integer, ForeignKey("game_teams.id"), nullable=True)
     member_id = Column(Integer, ForeignKey("sport_group_members.id"), nullable=False)
     

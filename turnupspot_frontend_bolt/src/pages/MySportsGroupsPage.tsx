@@ -5,6 +5,12 @@ import { useAuth } from "../contexts/AuthContext";
 import { toast } from "react-toastify";
 import { MapPin, Users, Calendar } from "lucide-react";
 
+
+interface PlayingDay {
+  id: string;
+  sport_group_id: string;
+  day: string;
+}
 interface SportGroup {
   id: string;
   name: string;
@@ -12,7 +18,7 @@ interface SportGroup {
   venue_name: string;
   venue_address: string;
   venue_image_url?: string;
-  playing_days: string;
+  playing_days: PlayingDay[];
   game_start_time: string;
   game_end_time: string;
   max_teams: number;
@@ -23,22 +29,35 @@ interface SportGroup {
   member_count?: number;
 }
 
-const dayNumberToName = (days: string): string => {
-  const dayNames = [
-    "Monday", // 0
-    "Tuesday", // 1
-    "Wednesday", // 2
-    "Thursday", // 3
-    "Friday", // 4
-    "Saturday", // 5
-    "Sunday", // 6
-  ];
+// const dayNumberToName = (days: string): string => {
+//   const dayNames = [
+//     "Monday", // 0
+//     "Tuesday", // 1
+//     "Wednesday", // 2
+//     "Thursday", // 3
+//     "Friday", // 4
+//     "Saturday", // 5
+//     "Sunday", // 6
+//   ];
+//   return days
+//     .split(",")
+//     .map((d) => dayNames[parseInt(d, 10)] || "")
+//     .filter(Boolean)
+//     .join(", ");
+// };
+
+const formatPlayingDays = (days: PlayingDay[]): string => {
+  if (!days || !days.length) return 'No days set';
+  
   return days
-    .split(",")
-    .map((d) => dayNames[parseInt(d, 10)] || "")
-    .filter(Boolean)
-    .join(", ");
+    .map(d => d.day)
+    .sort((a, b) => {
+      const daysOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+      return daysOrder.indexOf(a) - daysOrder.indexOf(b);
+    })
+    .join(', ');
 };
+
 
 const formatTime = (dateTime: string): string => {
   if (!dateTime) return "";
@@ -143,7 +162,8 @@ const MySportsGroupsPage: React.FC = () => {
               </div>
               <div className="flex items-center text-sm text-gray-500">
                 <Calendar className="w-4 h-4 mr-1" />
-                Next game: {dayNumberToName(group.playing_days)},{" "}
+                {/* Next game: {dayNumberToName(group.playing_days)},{" "} */}
+                Playing days: {formatPlayingDays(group.playing_days)},{" "}
                 {formatTime(group.game_start_time)}
               </div>
             </div>

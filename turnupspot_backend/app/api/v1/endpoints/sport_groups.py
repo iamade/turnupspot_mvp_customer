@@ -7,6 +7,7 @@ from io import BytesIO
 from fastapi.responses import StreamingResponse
 import os
 from datetime import datetime
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_optional_current_user
@@ -36,14 +37,25 @@ def get_my_sport_groups(
     created = db.query(SportGroup).filter(SportGroup.created_by == current_user.email)
     # Groups where user is a member
     member = db.query(SportGroup).join(SportGroupMember).filter(SportGroupMember.user_id == current_user.id)
-    # Union and remove duplicates
-    groups = {g.id: g for g in created.all()}
-    for g in member.all():
-        groups[g.id] = g
-    # Add member count to each group
-    for group in groups.values():
-        group.member_count = len([m for m in group.members if m.is_approved])
-    return list(groups.values())
+    groups = db.query(SportGroup).join(
+        SportGroupMember, 
+        SportGroupMember.sport_group_id == SportGroup.id
+    ).options(
+        selectinload(SportGroup.playing_days)  # Explicitly load the relationship
+    ).filter(
+        SportGroupMember.user_id == current_user.id
+    ).all()
+    
+    return groups
+   
+    # # Union and remove duplicates
+    # groups = {g.id: g for g in created.all()}
+    # for g in member.all():
+    #     groups[g.id] = g
+    # # Add member count to each group
+    # for group in groups.values():
+    #     group.member_count = len([m for m in group.members if m.is_approved])
+    # return list(groups.values())
 
 
 @router.post("/", response_model=SportGroupResponse)

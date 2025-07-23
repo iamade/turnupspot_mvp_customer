@@ -1,9 +1,31 @@
 from typing import Optional, List
-from pydantic import BaseModel, validator, Field
+from pydantic import BaseModel, field_validator, Field
 from datetime import datetime, time
+from enum import Enum
 
 from app.models.sport_group import SportsType, MemberRole
 
+class Day(str, Enum):
+    MONDAY = "MONDAY"
+    TUESDAY = "TUESDAY"
+    WEDNESDAY = "WEDNESDAY"
+    THURSDAY = "THURSDAY"
+    FRIDAY = "FRIDAY"
+    SATURDAY = "SATURDAY"
+    SUNDAY = "SUNDAY"
+
+class PlayingDayBase(BaseModel):
+    day: Day
+
+class PlayingDayCreate(PlayingDayBase):
+    pass
+
+class PlayingDay(PlayingDayBase):
+    id: str
+    sport_group_id: str
+
+    class Config:
+        from_attributes = True
 
 class SportGroupBase(BaseModel):
     name: str
@@ -11,7 +33,7 @@ class SportGroupBase(BaseModel):
     venue_name: str
     venue_address: str
     venue_image_url: Optional[str] = None
-    playing_days: str
+    playing_days: List[PlayingDay] = []
     game_start_time: time
     game_end_time: time
     max_teams: int = Field(gt=0)
@@ -20,17 +42,19 @@ class SportGroupBase(BaseModel):
     referee_required: bool = False
     sports_type: SportsType
 
-    @validator('max_teams')
+    @field_validator('max_teams')
     def validate_max_teams(cls, v):
         if v < 2:
             raise ValueError('Must have at least 2 teams')
         return v
 
-    @validator('max_players_per_team')
+    @field_validator('max_players_per_team')
     def validate_max_players(cls, v):
         if v < 1:
             raise ValueError('Must have at least 1 player per team')
         return v
+    class Config:
+        from_attributes = True
 
 
 class SportGroupCreate(SportGroupBase):
@@ -80,6 +104,7 @@ class SportGroupResponse(SportGroupBase):
     is_active: bool = True
     created_at: datetime
     updated_at: Optional[datetime] = None
+    playing_days: List[PlayingDay]
     member_count: Optional[int] = None
     current_user_membership: Optional[UserMembershipInfo] = None
 

@@ -343,6 +343,7 @@ const GameDayPage = () => {
       await fetchManualParticipants(); // Refresh manual participants
       setCheckinError("");
     } catch (error) {
+      // The error message will now come from the interceptor which extracts it from error.response.data.detail
       const errorMessage =
         error instanceof Error ? error.message : "Failed to check in players";
       setCheckinError(errorMessage);
@@ -424,7 +425,6 @@ const GameDayPage = () => {
     // Check if teams are ready and referee is present
     navigate(`/my-sports-groups/${id}/live-match`);
   };
-
 
   // Team drafting functions
   const startDrafting = () => {

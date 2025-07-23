@@ -16,7 +16,7 @@ import logging
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.sport_group import SportGroupMember, MemberRole, SportGroup
+from app.models.sport_group import SportGroupMember, MemberRole, SportGroup, PlayingDay
 from app.models.game import Game, GameTeam, GamePlayer, GameStatus, PlayerStatus
 from app.core.exceptions import ForbiddenException
 from app.models.manual_checkin import GameDayParticipant
@@ -561,8 +561,30 @@ def manual_check_in(
             Game.status.in_([GameStatus.SCHEDULED, GameStatus.IN_PROGRESS])
         )
     ).first()
+    
+    # If no game exists but it's a playing day, create one
     if not current_game:
-        raise HTTPException(status_code=404, detail="No game scheduled for today")
+        # Get sport group playing days
+        playing_days = db.query(PlayingDay).filter(
+            PlayingDay.sport_group_id == sport_group_id
+        ).all()
+        
+        # Check if today is a playing day
+        today_day = today.strftime("%A")
+        is_playing_day = any(pd.day.value == today_day for pd in playing_days)
+        
+        if is_playing_day:
+            # Create a game for today
+            current_game = Game(
+                sport_group_id=sport_group_id,
+                game_date=today.date(),
+                status=GameStatus.SCHEDULED
+            )
+            db.add(current_game)
+            db.commit()
+            db.refresh(current_game)
+        else:
+            raise HTTPException(status_code=404, detail="No game scheduled for today")
     # Create participants
     created = []
     for player in players:

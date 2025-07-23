@@ -10,12 +10,15 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.v1.api import api_router
 from app.core.exceptions import setup_exception_handlers
+from app.core.env_validator import validate_environment
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     print("Starting up TurnUp Spot API...")
+    # Validate environment variables
+    validate_environment()
     yield
     # Shutdown
     print("Shutting down TurnUp Spot API...")

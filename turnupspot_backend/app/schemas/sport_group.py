@@ -6,13 +6,13 @@ from enum import Enum
 from app.models.sport_group import SportsType, MemberRole
 
 class Day(str, Enum):
-    MONDAY = "MONDAY"
-    TUESDAY = "TUESDAY"
-    WEDNESDAY = "WEDNESDAY"
-    THURSDAY = "THURSDAY"
-    FRIDAY = "FRIDAY"
-    SATURDAY = "SATURDAY"
-    SUNDAY = "SUNDAY"
+    MONDAY = "Monday"
+    TUESDAY = "Tuesday"
+    WEDNESDAY = "Wednesday"
+    THURSDAY = "Thursday"
+    FRIDAY = "Friday"
+    SATURDAY = "Saturday"
+    SUNDAY = "Sunday"
 
 class PlayingDayBase(BaseModel):
     day: Day
@@ -67,7 +67,7 @@ class SportGroupUpdate(BaseModel):
     venue_name: Optional[str] = None
     venue_address: Optional[str] = None
     venue_image_url: Optional[str] = None
-    playing_days: Optional[str] = None
+    playing_days: Optional[List[Day]] = None
     game_start_time: Optional[time] = None
     game_end_time: Optional[time] = None
     max_teams: Optional[int] = Field(None, gt=0)
@@ -75,7 +75,29 @@ class SportGroupUpdate(BaseModel):
     rules: Optional[str] = None
     referee_required: Optional[bool] = None
     sports_type: Optional[SportsType] = None
-
+   
+    @field_validator('playing_days', mode='before')
+    @classmethod
+    def normalize_playing_days(cls, v):
+        if v is None:
+            return v
+        
+        normalized = []
+        for item in v:
+            if isinstance(item, dict) and 'day' in item:
+                # Extract day from PlayingDay object
+                day_value = item['day']
+                normalized.append(day_value)
+            elif isinstance(item, str):
+                # Handle string values - convert uppercase to title case if needed
+                if item.isupper():
+                    item = item.capitalize()
+                normalized.append(item)
+            else:
+                # Handle other types (shouldn't happen but just in case)
+                normalized.append(str(item))
+        
+        return normalized
 
 class SportGroupMemberResponse(BaseModel):
     id: int

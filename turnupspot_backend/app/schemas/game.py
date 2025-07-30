@@ -16,8 +16,8 @@ class GameTeamCreate(GameTeamBase):
 
 
 class GameTeamResponse(GameTeamBase):
-    id: int
-    game_id: int
+    id: str
+    game_id: str
     score: int
     goals_scored: int
     goals_conceded: int
@@ -77,7 +77,7 @@ class GameBase(BaseModel):
 
 
 class GameCreate(GameBase):
-    sport_group_id: int
+    sport_group_id: str
     teams: Optional[List[GameTeamCreate]] = []
     players: Optional[List[GamePlayerCreate]] = []
 
@@ -96,8 +96,8 @@ class GameUpdate(BaseModel):
 
 
 class GameResponse(BaseModel):
-    id: int
-    sport_group_id: int
+    id: str
+    sport_group_id: str
     status: GameStatus
     current_time: int
     is_timer_running: bool

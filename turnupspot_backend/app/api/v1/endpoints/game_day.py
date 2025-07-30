@@ -12,6 +12,7 @@ except ImportError:
     MOUNTAIN_TZ = pytz.timezone("America/Denver")
 import calendar
 import logging
+import uuid
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -53,10 +54,25 @@ def get_game_day_info(
         )
     
     # Check if today is a playing day
+    # today = datetime.now(MOUNTAIN_TZ)
+    # today_num = today.weekday()  
+    # playing_days = []
+    # if sport_group.playing_days:
+    #     playing_days = [int(day.strip()) for day in sport_group.playing_days.split(",") if day.strip().isdigit()]
+    
+    # is_playing_day = today_num in playing_days
+    # Check if today is a playing day using the PlayingDay table
     today = datetime.now(MOUNTAIN_TZ)
-    today_num = today.weekday()  
-    playing_days = [int(day.strip()) for day in sport_group.playing_days.split(",") if day.strip().isdigit()]
-    is_playing_day = today_num in playing_days
+    today_day_name = today.strftime("%A")  # "Wednesday"
+
+    # Query the PlayingDay table for this sport group
+    playing_days = db.query(PlayingDay).filter(
+        PlayingDay.sport_group_id == sport_group_id
+    ).all()
+
+    # Check if today matches any of the playing days
+    is_playing_day = any(pd.day.value == today_day_name for pd in playing_days)
+
     
     # Get current game if exists
     current_game = db.query(Game).filter(
@@ -475,8 +491,15 @@ def select_team_players(
         ).first()
         
         if not team:
-            continue
-        
+            team = GameTeam(
+                game_id=current_game.id,
+                team_name=f"Team {team_number}",
+                team_number=team_number
+            )
+            db.add(team)
+            db.flush()
+            print(f"Created new team: {team.team_name} with id {team.id}")
+            
         # Check if current user is captain of this team
         membership = db.query(SportGroupMember).filter(
             and_(
@@ -576,9 +599,12 @@ def manual_check_in(
         if is_playing_day:
             # Create a game for today
             current_game = Game(
+                id=str(uuid.uuid4()),
                 sport_group_id=sport_group_id,
                 game_date=today.date(),
-                status=GameStatus.SCHEDULED
+                start_time=datetime.combine(today.date(), sport_group.game_start_time),
+                end_time=datetime.combine(today.date(), sport_group.game_end_time),
+                status=GameStatus.SCHEDULED            
             )
             db.add(current_game)
             db.commit()
@@ -676,6 +702,10 @@ def assign_teams_manual_participants(
         if team_number in [1, 2]:
             for pid in participant_ids:
                 if pid not in first_10_ids:
+                    # Get the participant's name for a better error message
+                    participant = db.query(GameDayParticipant).filter(GameDayParticipant.id == pid).first()
+                    participant_name = participant.name if participant else f"Participant ID {pid}"
+                
                     raise HTTPException(
                         status_code=400,
                         detail=f"Only the first 10 arrivals can be assigned to Team 1 or 2. Participant ID {pid} is not allowed."

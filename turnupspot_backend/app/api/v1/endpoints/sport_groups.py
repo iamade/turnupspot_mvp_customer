@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_optional_current_user
 from app.models.user import User
-from app.models.sport_group import SportGroup, SportGroupMember, MemberRole, SportsType
+from app.models.sport_group import SportGroup, SportGroupMember, MemberRole, SportsType, PlayingDay, Day
 from app.models.chat import ChatRoom, ChatRoomType
 from app.schemas.sport_group import (
     SportGroupCreate, SportGroupUpdate, SportGroupResponse, 
@@ -267,9 +267,30 @@ def update_sport_group(
         update_data["venue_latitude"] = latitude
         update_data["venue_longitude"] = longitude
     
+    # Handle playing_days separately
+    playing_days_update = update_data.pop("playing_days", None)
+    
+    # Update other fields
     for field, value in update_data.items():
         setattr(db_sport_group, field, value)
     
+    # Handle playing days update
+    if playing_days_update is not None:
+        # Delete existing playing days
+        db.query(PlayingDay).filter(PlayingDay.sport_group_id == sport_group_id).delete()
+        db.flush() 
+        # Create new playing days
+        for day_string in playing_days_update:
+            # Convert string to Day enum
+            if day_string in [d.value for d in Day]:
+                day_enum = Day(day_string)
+                playing_day = PlayingDay(
+                    id=str(uuid.uuid4()),  # Generate UUID for the playing day
+                    sport_group_id=sport_group_id,
+                    day=day_enum
+                )
+                db.add(playing_day)
+           
     db.commit()
     db.refresh(db_sport_group)
     

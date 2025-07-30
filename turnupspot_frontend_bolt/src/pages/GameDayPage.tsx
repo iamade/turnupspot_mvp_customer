@@ -210,8 +210,42 @@ const GameDayPage = () => {
         { headers }
       );
       setManualParticipants(res.data);
+
+      // Sync drafting state with backend data
+      syncDraftingState(res.data);
     } catch {
       setManualParticipants([]);
+    }
+  };
+
+  // Add this new function to sync the drafting state
+  const syncDraftingState = (participants: ManualParticipant[]) => {
+    const maxPlayersPerTeam = gameDayInfo?.max_players_per_team || 5;
+    
+    // Count players in each team
+    const team1Count = participants.filter(p => p.team === 1).length;
+    const team2Count = participants.filter(p => p.team === 2).length;
+    
+    // Determine current state
+    if (team1Count === 0) {
+      // Need to draft team 1
+      setManualDraftingTurn(1);
+      setManualDraftingMode(true);
+    } else if (team1Count < maxPlayersPerTeam && team2Count === 0) {
+      // Team 1 partially drafted, continue with team 1
+      setManualDraftingTurn(1);
+      setManualDraftingMode(true);
+    } else if (team2Count === 0) {
+      // Team 1 complete, need to draft team 2
+      setManualDraftingTurn(2);
+      setManualDraftingMode(true);
+    } else if (team2Count < maxPlayersPerTeam) {
+      // Team 2 partially drafted, continue with team 2
+      setManualDraftingTurn(2);
+      setManualDraftingMode(true);
+    } else {
+      // Both teams complete
+      setManualDraftingMode(false);
     }
   };
 
@@ -570,8 +604,14 @@ const GameDayPage = () => {
       setSelectedManualParticipants([]);
       await fetchManualParticipants();
       toast.success("Manual participants drafted successfully!");
-    } catch {
-      toast.error("Failed to draft manual participants");
+    } catch(error) {
+      console.log('Full error:', error);
+      console.log('Error response:', (error as any).response?.data);
+      console.log('Error response.detail:', (error as any).response?.data.detail);
+      
+    
+      const errorMessage = (error as any).response?.data?.detail || "Failed to draft manual participants"
+      toast.error(errorMessage);
     }
   };
 

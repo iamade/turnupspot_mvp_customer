@@ -1,8 +1,8 @@
-"""initial
+"""Initial migration
 
-Revision ID: f48844ffe2e7
+Revision ID: 7d68680da5bf
 Revises: 
-Create Date: 2025-06-25 21:54:13.778727
+Create Date: 2025-08-25 22:21:00.739626
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'f48844ffe2e7'
+revision = '7d68680da5bf'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -31,6 +31,7 @@ def upgrade() -> None:
     sa.Column('role', sa.Enum('USER', 'VENDOR', 'ADMIN', 'SUPERADMIN', name='userrole'), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('is_verified', sa.Boolean(), nullable=False),
+    sa.Column('activation_token', sa.String(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id')
@@ -73,9 +74,8 @@ def upgrade() -> None:
     sa.Column('venue_image_url', sa.String(), nullable=True),
     sa.Column('venue_latitude', sa.Float(), nullable=True),
     sa.Column('venue_longitude', sa.Float(), nullable=True),
-    sa.Column('playing_days', sa.String(), nullable=False),
-    sa.Column('game_start_time', sa.DateTime(), nullable=False),
-    sa.Column('game_end_time', sa.DateTime(), nullable=False),
+    sa.Column('game_start_time', sa.Time(), nullable=False),
+    sa.Column('game_end_time', sa.Time(), nullable=False),
     sa.Column('max_teams', sa.Integer(), nullable=False),
     sa.Column('max_players_per_team', sa.Integer(), nullable=False),
     sa.Column('rules', sa.String(), nullable=True),
@@ -164,6 +164,13 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_event_attendees_id'), 'event_attendees', ['id'], unique=False)
+    op.create_table('playing_days',
+    sa.Column('id', sa.String(), nullable=False),
+    sa.Column('sport_group_id', sa.String(), nullable=True),
+    sa.Column('day', sa.Enum('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', name='day'), nullable=True),
+    sa.ForeignKeyConstraint(['sport_group_id'], ['sport_groups.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('sport_group_members',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('sport_group_id', sa.String(), nullable=False),
@@ -225,7 +232,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_chat_messages_id'), 'chat_messages', ['id'], unique=False)
     op.create_table('games',
-    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('id', sa.String(), nullable=False),
     sa.Column('sport_group_id', sa.String(), nullable=False),
     sa.Column('game_date', sa.DateTime(), nullable=False),
     sa.Column('start_time', sa.DateTime(), nullable=False),
@@ -239,6 +246,10 @@ def upgrade() -> None:
     sa.Column('weather_conditions', sa.String(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('completed_matches', sa.JSON(), nullable=True),
+    sa.Column('current_match', sa.JSON(), nullable=True),
+    sa.Column('upcoming_match', sa.JSON(), nullable=True),
+    sa.Column('coin_toss_state', sa.JSON(), nullable=True),
     sa.ForeignKeyConstraint(['assistant_referee_id'], ['sport_group_members.id'], ),
     sa.ForeignKeyConstraint(['referee_id'], ['sport_group_members.id'], ),
     sa.ForeignKeyConstraint(['sport_group_id'], ['sport_groups.id'], ),
@@ -255,9 +266,22 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_team_members_id'), 'team_members', ['id'], unique=False)
-    op.create_table('game_teams',
+    op.create_table('game_day_participants',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('game_id', sa.Integer(), nullable=False),
+    sa.Column('game_id', sa.String(), nullable=False),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.Column('email', sa.String(), nullable=True),
+    sa.Column('phone', sa.String(), nullable=True),
+    sa.Column('team', sa.Integer(), nullable=True),
+    sa.Column('is_registered_user', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_game_day_participants_id'), 'game_day_participants', ['id'], unique=False)
+    op.create_table('game_teams',
+    sa.Column('id', sa.String(), nullable=False),
+    sa.Column('game_id', sa.String(), nullable=False),
     sa.Column('team_name', sa.String(), nullable=False),
     sa.Column('team_number', sa.Integer(), nullable=False),
     sa.Column('captain_id', sa.Integer(), nullable=True),
@@ -272,8 +296,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_game_teams_id'), 'game_teams', ['id'], unique=False)
     op.create_table('game_players',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('game_id', sa.Integer(), nullable=False),
-    sa.Column('team_id', sa.Integer(), nullable=True),
+    sa.Column('game_id', sa.String(), nullable=False),
+    sa.Column('team_id', sa.String(), nullable=True),
     sa.Column('member_id', sa.Integer(), nullable=False),
     sa.Column('status', sa.Enum('EXPECTED', 'ARRIVED', 'DELAYED', 'ABSENT', name='playerstatus'), nullable=True),
     sa.Column('arrival_time', sa.DateTime(), nullable=True),
@@ -300,6 +324,8 @@ def downgrade() -> None:
     op.drop_table('game_players')
     op.drop_index(op.f('ix_game_teams_id'), table_name='game_teams')
     op.drop_table('game_teams')
+    op.drop_index(op.f('ix_game_day_participants_id'), table_name='game_day_participants')
+    op.drop_table('game_day_participants')
     op.drop_index(op.f('ix_team_members_id'), table_name='team_members')
     op.drop_table('team_members')
     op.drop_index(op.f('ix_games_id'), table_name='games')
@@ -312,6 +338,7 @@ def downgrade() -> None:
     op.drop_table('teams')
     op.drop_index(op.f('ix_sport_group_members_id'), table_name='sport_group_members')
     op.drop_table('sport_group_members')
+    op.drop_table('playing_days')
     op.drop_index(op.f('ix_event_attendees_id'), table_name='event_attendees')
     op.drop_table('event_attendees')
     op.drop_index(op.f('ix_chat_rooms_id'), table_name='chat_rooms')

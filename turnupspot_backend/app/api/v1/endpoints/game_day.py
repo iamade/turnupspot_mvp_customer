@@ -23,6 +23,8 @@ from app.core.exceptions import ForbiddenException
 from app.models.manual_checkin import GameDayParticipant
 from app.schemas.manual_checkin import GameDayParticipantCreate, GameDayParticipantOut
 
+import uuid
+
 router = APIRouter()
 
 
@@ -449,8 +451,30 @@ def assign_captains(
             print(f"After assignment: team.captain_id={team.captain_id}, player.team_id={player.team_id}, player.is_captain={player.is_captain}")
         else:
             print(f"No GamePlayer found for player_id={player_id} in game_id={current_game.id}")
+    
+    # Ensure all teams with captains are properly created and committed
+    for team_number in [1, 2]:
+        team = db.query(GameTeam).filter(
+            and_(
+                GameTeam.game_id == current_game.id,
+                GameTeam.team_number == team_number
+            )
+        ).first()
+        
+        if not team:
+            team = GameTeam(
+                id=str(uuid.uuid4()),
+                game_id=current_game.id,
+                team_name=f"Team {team_number}",
+                team_number=team_number
+            )
+            db.add(team)
+            db.flush()
+            print(f"Created missing team: {team.team_name} with id {team.id}")
+
+    
     db.commit()
-    return {"message": "Captains assigned successfully"}
+    return {"message": "Captains and team assigned successfully"}
 
 
 @router.post("/{sport_group_id}/teams/select-players")
@@ -479,6 +503,27 @@ def select_team_players(
     
     # Get sport group for max players per team
     sport_group = db.query(SportGroup).filter(SportGroup.id == sport_group_id).first()
+    
+                    
+    # Ensure all teams exist before assigning players
+    for team_number in selections.keys():
+        team = db.query(GameTeam).filter(
+            and_(
+                GameTeam.game_id == current_game.id,
+                GameTeam.team_number == team_number
+            )
+        ).first()
+        
+        if not team:
+            team = GameTeam(
+                id=str(uuid.uuid4()),
+                game_id=current_game.id,
+                team_name=f"Team {team_number}",
+                team_number=team_number
+            )
+            db.add(team)
+            db.flush()
+            print(f"Created team during player selection: {team.team_name}")
     
     # Process selections
     for team_number, player_ids in selections.items():
@@ -548,6 +593,8 @@ def select_team_players(
             if player:
                 player.team_id = team.id
                 current_team_players += 1
+
+
     
     db.commit()
     
@@ -710,6 +757,29 @@ def assign_teams_manual_participants(
                         status_code=400,
                         detail=f"Only the first 10 arrivals can be assigned to Team 1 or 2. Participant ID {pid} is not allowed."
                     )
+                    
+
+    # Ensure teams exist before assigning participants
+    for team_number in assignments.keys():
+        if team_number in [1, 2]:  # Only create teams 1 and 2 here
+            team = db.query(GameTeam).filter(
+                and_(
+                    GameTeam.game_id == current_game.id,
+                    GameTeam.team_number == team_number
+                )
+            ).first()
+            
+            if not team:
+                team = GameTeam(
+                    id=str(uuid.uuid4()),
+                    game_id=current_game.id,
+                    team_name=f"Team {team_number}",
+                    team_number=team_number
+                )
+                db.add(team)
+                db.flush()
+                print(f"Created team for manual participants: {team.team_name}")
+
     # Assign teams
     updated = []
     for team_number, participant_ids in assignments.items():
@@ -769,6 +839,26 @@ def auto_assign_manual_participants(
         GameDayParticipant.game_id == current_game.id,
         GameDayParticipant.team == i
     ).count() for i in range(3, max_teams+1)}
+    
+    # Ensure teams 3+ exist before assigning participants
+    for t in range(3, max_teams+1):
+        team = db.query(GameTeam).filter(
+            and_(
+                GameTeam.game_id == current_game.id,
+                GameTeam.team_number == t
+            )
+        ).first()
+        
+        if not team:
+            team = GameTeam(
+                game_id=current_game.id,
+                team_name=f"Team {t}",
+                team_number=t
+            )
+            db.add(team)
+            db.flush()
+            print(f"Created team for auto-assignment: {team.team_name}")
+    
     for participant in unassigned:
         # Find the next team with available slot
         assigned = False

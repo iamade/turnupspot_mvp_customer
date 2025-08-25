@@ -58,7 +58,7 @@ class SportGroupBase(BaseModel):
 
 
 class SportGroupCreate(SportGroupBase):
-    pass
+    playing_days: List[PlayingDayCreate]
 
 
 class SportGroupUpdate(BaseModel):

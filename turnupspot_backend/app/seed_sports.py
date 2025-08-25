@@ -146,7 +146,7 @@ def seed_sports():
     finally:
         db.close()
 
-if __name__ == "__main__":
-    print("Seeding default sports...")
-    seed_sports()
-    print("Done!") 
+# if __name__ == "__main__":
+#     print("Seeding default sports...")
+#     seed_sports()
+#     print("Done!") 

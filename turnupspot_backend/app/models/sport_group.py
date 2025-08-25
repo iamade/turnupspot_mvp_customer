@@ -74,7 +74,7 @@ class SportGroup(Base):
     venue_image_url = Column(String)
     venue_latitude = Column(Float)
     venue_longitude = Column(Float)
-    playing_days = Column(String, default="0,2,4")  # e.g., "0,2,4" for Mon, Wed, Fri
+    # playing_days = Column(String, default="0,2,4")  # e.g., "0,2,4" for Mon, Wed, Fri
     game_start_time = Column(Time, nullable=False)
     game_end_time = Column(Time, nullable=False)
     max_teams = Column(Integer, nullable=False)
@@ -108,8 +108,11 @@ class SportGroup(Base):
     def is_playing_day(self, today: date) -> bool:
         if not self.playing_days:
             return False  # or True if you want every day to be a playing day by default
-        playing_days = [int(d) for d in self.playing_days.split(",") if d.strip().isdigit()]
-        return today.weekday() in playing_days
+        # playing_days = [int(d) for d in self.playing_days.split(",") if d.strip().isdigit()]
+        playing_days = [pd.day.value for pd in self.playing_days]
+        weekday_name = today.strftime("%A")
+        return weekday_name in playing_days
+        # return today.weekday() in playing_days
 
 
 class SportGroupMember(Base):

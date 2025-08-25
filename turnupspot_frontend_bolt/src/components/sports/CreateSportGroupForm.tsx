@@ -14,15 +14,15 @@ interface PlaceResult {
   };
 }
 
-const dayNameToNumber: Record<string, number> = {
-  Monday: 0,
-  Tuesday: 1,
-  Wednesday: 2,
-  Thursday: 3,
-  Friday: 4,
-  Saturday: 5,
-  Sunday: 6,
-};
+// const dayNameToNumber: Record<string, number> = {
+//   Monday: 0,
+//   Tuesday: 1,
+//   Wednesday: 2,
+//   Thursday: 3,
+//   Friday: 4,
+//   Saturday: 5,
+//   Sunday: 6,
+// };
 
 const CreateSportGroupForm: React.FC = () => {
   const navigate = useNavigate();
@@ -237,11 +237,12 @@ const CreateSportGroupForm: React.FC = () => {
       submitData.append("venue_address", formData.address);
       submitData.append("venue_latitude", formData.latitude);
       submitData.append("venue_longitude", formData.longitude);
-      const playingDaysNumbers = formData.playingDays
-        .map((day) => dayNameToNumber[day])
-        .filter((num) => num !== undefined)
-        .join(",");
-      submitData.append("playing_days", playingDaysNumbers);
+      // const playingDaysNumbers = formData.playingDays
+      //   .map((day) => dayNameToNumber[day])
+      //   .filter((num) => num !== undefined)
+      //   .join(",");
+      const playingDaysPayload = formData.playingDays.map((day) => ({ day }));
+      submitData.append("playing_days", JSON.stringify(playingDaysPayload));
       submitData.append("game_start_time", formData.gameStartTime);
       submitData.append("game_end_time", formData.gameEndTime);
       submitData.append("max_teams", formData.maxTeams);

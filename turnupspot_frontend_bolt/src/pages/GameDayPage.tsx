@@ -457,7 +457,39 @@ const GameDayPage = () => {
 
   const handlePlayBall = () => {
     // Check if teams are ready and referee is present
-    navigate(`/my-sports-groups/${id}/live-match`);
+     try {
+      setLoading(true);
+      
+      // First, ensure teams are properly created in the database
+      if (checkinMode === "manual") {
+        // For manual mode, ensure teams 1 and 2 have GameTeam records
+        const team1Players = manualParticipants.filter(p => p.team === 1);
+        const team2Players = manualParticipants.filter(p => p.team === 2);
+        
+        if (team1Players.length === 0 || team2Players.length === 0) {
+          toast.error("Both Team 1 and Team 2 must have at least one player");
+          return;
+        }
+      } else {
+        // For automatic mode, ensure teams have GameTeam records
+        const teamsWithPlayers = new Set(
+          players.filter((p) => p.team).map((p) => p.team)
+        );
+        
+        if (teamsWithPlayers.size < 2) {
+          toast.error("At least 2 teams must have players assigned");
+          return;
+        }
+      }
+      
+      // Navigate to live match
+      navigate(`/my-sports-groups/${id}/live-match`);
+    } catch (error) {
+      console.error("Error preparing for live match:", error);
+      toast.error("Failed to prepare for live match");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Team drafting functions

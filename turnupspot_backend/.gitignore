@@ -152,3 +152,5 @@ test.db
 
 .env.development
 .env.production
+
+/mycode.md

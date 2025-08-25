@@ -11,7 +11,7 @@ from app.core.database import engine, Base
 from app.api.v1.api import api_router
 from app.core.exceptions import setup_exception_handlers
 from app.core.env_validator import validate_environment
-
+from app.seed_sports import seed_sports
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,6 +19,11 @@ async def lifespan(app: FastAPI):
     print("Starting up TurnUp Spot API...")
     # Validate environment variables
     validate_environment()
+    # If seed_sports is synchronous, run it in a threadpool to avoid blocking
+    import asyncio
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, seed_sports)
+    
     yield
     # Shutdown
     print("Shutting down TurnUp Spot API...")
@@ -32,6 +37,9 @@ app = FastAPI(
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
 )
+
+
+
 
 # Security middleware
 if not settings.DEBUG:

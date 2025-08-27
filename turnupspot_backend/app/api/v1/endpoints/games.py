@@ -7,8 +7,8 @@ from uuid import UUID
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.sport_group import SportGroupMember, MemberRole
-from app.models.game import Game, GameTeam, GamePlayer, GameStatus, PlayerStatus
+from app.models.sport_group import SportGroup, SportGroupMember, MemberRole
+from app.models.game import Game, GameTeam, GamePlayer, GameStatus, PlayerStatus, Match, MatchStatus
 from app.schemas.game import (
     GameCreate, GameUpdate, GameResponse, GameTimerUpdate, GameScoreUpdate,
     GamePlayerUpdate, GamePlayerResponse
@@ -16,6 +16,8 @@ from app.schemas.game import (
 from app.core.exceptions import ForbiddenException
 from datetime import datetime
 import random
+
+from app.models.manual_checkin import GameDayParticipant
 
 router = APIRouter()
 
@@ -210,52 +212,278 @@ def update_game_timer(
     
     return {"message": "Timer updated successfully", "current_time": game.current_time, "is_running": game.is_timer_running}
 
-
-@router.get("/{game_id}/state")
-def get_game_state(
-    game_id: UUID,
+@router.get("/{game_id}/teams")
+def get_game_teams(
+    game_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get current match, upcoming match, completed matches, referee, and coin toss state."""
-    game = db.query(Game).filter(Game.id == str(game_id)).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-    # Check membership
-    membership = db.query(SportGroupMember).filter(
+    """Get all teams for a game with their details"""
+    # Get all teams for this game
+    teams = db.query(GameTeam).filter(GameTeam.game_id == game_id).all()
+    
+    team_data = []
+    for team in teams:
+        # Count players in this team (both registered and manual participants)
+        registered_players = db.query(GamePlayer).filter(
+            and_(GamePlayer.game_id == game_id, GamePlayer.team_id == team.id)
+        ).count()
+        
+        manual_players = db.query(GameDayParticipant).filter(
+            and_(GameDayParticipant.game_id == game_id, GameDayParticipant.team == team.team_number)
+        ).count()
+        
+        team_info = {
+            "id": team.id,
+            "name": team.team_name,
+            "team_number": team.team_number,
+            "captain_id": team.captain_id,
+            "player_count": registered_players + manual_players,
+            "registered_players": registered_players,
+            "manual_players": manual_players
+        }
+        team_data.append(team_info)
+    
+    return {"teams": team_data}
+
+@router.get("/{game_id}/state")
+def get_game_state(
+    game_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current game state including matches and teams"""
+    # Get current match
+    current_match = db.query(Match).filter(
         and_(
-            SportGroupMember.sport_group_id == game.sport_group_id,
-            SportGroupMember.user_id == current_user.id,
-            SportGroupMember.is_approved == True
+            Match.game_id == game_id,
+            Match.status == MatchStatus.IN_PROGRESS
         )
     ).first()
     
-    if not membership:
-        raise ForbiddenException("Only group members can view game state")
-    # Get teams, matches, referee, coin toss state
-    teams = db.query(GameTeam).filter(GameTeam.game_id == str(game_id)).all()
-    players = db.query(GamePlayer).filter(GamePlayer.game_id == str(game_id)).all()
+    # Get completed matches
+    completed_matches = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id,
+            Match.status == MatchStatus.COMPLETED
+        )
+    ).order_by(Match.completed_at.desc()).all()
     
-    completed_matches = game.completed_matches or []
-    current_match = game.current_match
-    upcoming_match = game.upcoming_match
-    referee = game.referee_id
-    coin_toss_state = game.coin_toss_state
+    # Get all teams for this game
+    teams = db.query(GameTeam).filter(GameTeam.game_id == game_id).all()
     
-    # completed_matches = getattr(game, "completed_matches", [])
-    # current_match = getattr(game, "current_match", None)
-    # upcoming_match = getattr(game, "upcoming_match", None)
-    # referee = getattr(game, "referee_id", None)
-    # coin_toss_state = getattr(game, "coin_toss_state", None)
+    # Create team info mapping
+    team_info = {}
+    for team in teams:
+        team_info[team.id] = {
+            "id": team.id,
+            "name": team.team_name,
+            "team_number": team.team_number,
+            "captain_id": team.captain_id
+        }
+        
+    # Get the sport group to check if user is admin
+    game = db.query(Game).filter(Game.id == game_id).first()
+    sport_group = db.query(SportGroup).filter(SportGroup.id == game.sport_group_id).first()
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == game.sport_group_id,
+            SportGroupMember.user_id == current_user.id
+        )
+    ).first()
+    
+    # Determine if user can control the match
+    can_control_match = False
+    referee_info = {"name": "No referee assigned", "team": "", "user_id": None}
+    
+    if membership:
+        # Check if user is admin
+        is_admin = (membership.role == MemberRole.ADMIN or 
+                   sport_group.creator_id == current_user.id)
+        
+        # Check if user is assigned referee
+        is_assigned_referee = False
+        if current_match and current_match.referee_id:
+            is_assigned_referee = current_match.referee_id == membership.id
+        
+        # Check if user is referee by position (captain of non-playing team)
+        is_referee_by_position = False
+        referee_team_number = None
+        
+        if current_match and len(teams) >= 5:
+            # Get playing team numbers
+            team_a = team_info.get(current_match.team_a_id)
+            team_b = team_info.get(current_match.team_b_id)
+            
+            if team_a and team_b:
+                playing_teams = sorted([team_a["team_number"], team_b["team_number"]])
+                
+                # Determine referee team based on playing teams
+                if playing_teams == [1, 2]:
+                    referee_team_number = 5
+                elif playing_teams == [3, 4]:
+                    referee_team_number = 1
+                elif playing_teams == [1, 3]:
+                    referee_team_number = 2
+                elif playing_teams == [2, 4]:
+                    referee_team_number = 3
+                elif playing_teams == [1, 4]:
+                    referee_team_number = 6
+                elif playing_teams == [2, 3]:
+                    referee_team_number = 4
+                
+                # Check if current user is captain of referee team
+                if referee_team_number:
+                    referee_team = next((t for t in teams if t.team_number == referee_team_number), None)
+                    if referee_team and referee_team.captain_id == membership.id:
+                        is_referee_by_position = True
+                        referee_info = {
+                            "name": f"{referee_team.team_name} Captain",
+                            "team": f"Team {referee_team.team_number}",
+                            "user_id": membership.user_id
+                        }
+        
+        can_control_match = is_admin or is_assigned_referee or is_referee_by_position
+        
+        # Update referee info if we have specific referee assignment
+        if current_match and current_match.referee_id and not is_referee_by_position:
+            referee_member = db.query(SportGroupMember).filter(
+                SportGroupMember.id == current_match.referee_id
+            ).first()
+            if referee_member:
+                referee_info = {
+                    "name": referee_member.user.full_name,
+                    "team": "Assigned Referee",
+                    "user_id": referee_member.user_id
+                }
+    
+    # Determine upcoming match based on current match result
+    upcoming_match = None
+    if current_match:
+        # If current match is 0-0, upcoming should be Team 3 vs Team 4
+        if current_match.team_a_score == 0 and current_match.team_b_score == 0:
+            team3 = next((t for t in teams if t.team_number == 3), None)
+            team4 = next((t for t in teams if t.team_number == 4), None)
+            if team3 and team4:
+                upcoming_match = {
+                    "team_a_id": team3.id,
+                    "team_b_id": team4.id,
+                    "team_a_name": team3.team_name,
+                    "team_b_name": team4.team_name
+                }
+        # Add more logic for other scenarios based on scores
+        elif current_match.team_a_score > current_match.team_b_score:
+            # Winner plays next available team
+            winner_team = team_info.get(current_match.team_a_id)
+            team3 = next((t for t in teams if t.team_number == 3), None)
+            if winner_team and team3:
+                upcoming_match = {
+                    "team_a_id": current_match.team_a_id,
+                    "team_b_id": team3.id,
+                    "team_a_name": winner_team["name"],
+                    "team_b_name": team3.team_name
+                }
+        elif current_match.team_b_score > current_match.team_a_score:
+            # Winner plays next available team
+            winner_team = team_info.get(current_match.team_b_id)
+            team3 = next((t for t in teams if t.team_number == 3), None)
+            if winner_team and team3:
+                upcoming_match = {
+                    "team_a_id": current_match.team_b_id,
+                    "team_b_id": team3.id,
+                    "team_a_name": winner_team["name"],
+                    "team_b_name": team3.team_name
+                }
+    
     return {
-        "current_match": current_match,
+        "current_match": {
+            "team_a_id": current_match.team_a_id,
+            "team_b_id": current_match.team_b_id,
+            "team_a_name": team_info.get(current_match.team_a_id, {}).get("name", "Unknown Team"),
+            "team_b_name": team_info.get(current_match.team_b_id, {}).get("name", "Unknown Team"),
+            "team_a_score": current_match.team_a_score,
+            "team_b_score": current_match.team_b_score,
+            "started_at": current_match.started_at.isoformat() if current_match.started_at else None
+        } if current_match else None,
         "upcoming_match": upcoming_match,
-        "completed_matches": completed_matches,
-        "referee": referee,
-        "coin_toss_state": coin_toss_state,
-        "teams": [t.id for t in teams],
-        "players": [p.id for p in players]
+        "completed_matches": [
+            {
+                "team_a_id": match.team_a_id,
+                "team_b_id": match.team_b_id,
+                "team_a_name": team_info.get(match.team_a_id, {}).get("name", "Unknown Team"),
+                "team_b_name": team_info.get(match.team_b_id, {}).get("name", "Unknown Team"),
+                "team_a_score": match.team_a_score,
+                "team_b_score": match.team_b_score,
+                "winner_id": match.winner_id,
+                "is_draw": match.is_draw,
+                "completed_at": match.completed_at.isoformat() if match.completed_at else None,
+                "referee_id": match.referee_id
+            }
+            for match in completed_matches
+        ],
+        "referee": None,  # Implement referee logic if needed
+        "coin_toss_state": None,  # Implement coin toss logic if needed
+        "teams": [team.id for team in teams],
+        "team_details": team_info,  # Add team details for frontend
+        "players": [],
+        "can_control_match": can_control_match,
+        "referee_info": referee_info
     }
+
+# @router.get("/{game_id}/state")
+# def get_game_state(
+#     game_id: str,
+#     current_user: User = Depends(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """Get current game state including matches"""
+#     # Get current match
+#     current_match = db.query(Match).filter(
+#         and_(
+#             Match.game_id == game_id,
+#             Match.status.in_([MatchStatus.IN_PROGRESS])
+#         )
+#     ).first()
+    
+#     # Get completed matches
+#     completed_matches = db.query(Match).filter(
+#         and_(
+#             Match.game_id == game_id,
+#             Match.status == MatchStatus.COMPLETED
+#         )
+#     ).order_by(Match.completed_at.desc()).all()
+    
+#     # Get teams
+#     teams = db.query(GameTeam).filter(GameTeam.game_id == game_id).all()
+#     team_ids = [team.id for team in teams]
+    
+#     return {
+#         "current_match": {
+#             "team_a_id": current_match.team_a_id,
+#             "team_b_id": current_match.team_b_id,
+#             "team_a_score": current_match.team_a_score,
+#             "team_b_score": current_match.team_b_score,
+#             "started_at": current_match.started_at.isoformat() if current_match.started_at else None
+#         } if current_match else None,
+#         "upcoming_match": None,  # You can implement match scheduling logic here
+#         "completed_matches": [
+#             {
+#                 "team_a_id": match.team_a_id,
+#                 "team_b_id": match.team_b_id,
+#                 "team_a_score": match.team_a_score,
+#                 "team_b_score": match.team_b_score,
+#                 "winner_id": match.winner_id,
+#                 "is_draw": match.is_draw,
+#                 "completed_at": match.completed_at.isoformat() if match.completed_at else None
+#             }
+#             for match in completed_matches
+#         ],
+#         "referee": None,  # Implement referee logic
+#         "coin_toss_state": None,  # Implement coin toss logic
+#         "teams": team_ids,
+#         "players": []
+#     }
+
 
 @router.post("/{game_id}/coin-toss")
 def coin_toss(

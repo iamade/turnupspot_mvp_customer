@@ -17,37 +17,70 @@ import { get, post } from "../api";
 import { toast } from "react-toastify";
 
 interface Team {
-  id: number;
+  id: string;
   name: string;
   team_number: number;
   captain_id?: number;
   score: number;
 }
 
+// interface Match {
+//   team_a_id: number;
+//   team_b_id: number;
+//   team_a_score?: number;
+//   team_b_score?: number;
+//   winner_id?: number;
+//   is_draw?: boolean;
+//   referee_id?: number;
+//   completed_at?: string;
+//   started_at?: string;
+// }
+
+interface GameState {
+  current_match: Match | null;
+  upcoming_match: {
+    team_a_id: string;
+    team_b_id: string;
+    team_a_name: string;
+    team_b_name: string;
+  } | null;
+  completed_matches: Match[];
+  referee: number | null;
+  coin_toss_state: any | null;
+  teams: string[];
+  team_details: {
+    [key: string]: {
+      id: string;
+      name: string;
+      team_number: number;
+      captain_id?: number;
+    };
+  };
+  players: number[];
+  can_control_match: boolean;
+  referee_info: {
+    name: string;
+    team: string;
+    user_id?: number;
+  };
+}
+
 interface Match {
-  team_a_id: number;
-  team_b_id: number;
+  team_a_id: string;
+  team_b_id: string;
+  team_a_name?: string;
+  team_b_name?: string;
   team_a_score?: number;
   team_b_score?: number;
-  winner_id?: number;
+  winner_id?: string;
   is_draw?: boolean;
   referee_id?: number;
   completed_at?: string;
   started_at?: string;
 }
 
-interface GameState {
-  current_match: Match | null;
-  upcoming_match: Match | null;
-  completed_matches: Match[];
-  referee: number | null;
-  coin_toss_state: any | null;
-  teams: number[];
-  players: number[];
-}
-
 interface AvailableTeam {
-  id: number;
+  id: string;
   name: string;
   team_number: number;
   captain_id?: number;
@@ -102,12 +135,11 @@ const LiveMatchPage: React.FC = () => {
     volume: 0.7,
   });
 
-  // Fetch game state
   const fetchGameState = async () => {
     if (!id || !token) return;
 
     try {
-      // First get the game day info to get the actual game ID
+      // Get the game day info to get the actual game ID
       const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -117,23 +149,37 @@ const LiveMatchPage: React.FC = () => {
         throw new Error("No active game found for today");
       }
 
-      // Then use the actual game ID to get the state
+      // Get the game state with team details
       const response = await get<GameState>(`/games/${gameId}/state`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setGameState(response.data);
 
-      // Fetch teams data using the game ID
-      const teamsResponse = await get<GameResponse>(`/games/${gameId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setTeams(teamsResponse.data.teams || []);
-
-      // Fetch available teams
-      const availableResponse = await get(`/games/${gameId}/available-teams`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAvailableTeams((availableResponse.data as any).available_teams || []);
+      // Try to fetch teams data
+      try {
+        const teamsResponse = await get<{ teams: Team[] }>(
+          `/games/${gameId}/teams`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        setTeams(teamsResponse.data.teams || []);
+      } catch (teamError) {
+        console.warn("Could not fetch teams data:", teamError);
+        // Use team details from game state as fallback
+        if (response.data.team_details) {
+          const teamArray = Object.values(response.data.team_details).map(
+            (team) => ({
+              id: team.id,
+              name: team.name,
+              team_number: team.team_number,
+              captain_id: team.captain_id,
+              score: 0, // Default score
+            })
+          );
+          setTeams(teamArray as Team[]);
+        }
+      }
     } catch (error) {
       console.error("Error fetching game state:", error);
       toast.error("Failed to load match data");
@@ -141,6 +187,96 @@ const LiveMatchPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  //   const fetchGameState = async () => {
+  //   if (!id || !token) return;
+
+  //   try {
+  //     // First get the game day info to get the actual game ID
+  //     const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+  //     const gameId = gameDayResponse.data.current_game_id;
+
+  //     if (!gameId) {
+  //       throw new Error("No active game found for today");
+  //     }
+
+  //     // Get the game state
+  //     const response = await get<GameState>(`/games/${gameId}/state`, {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+  //     setGameState(response.data);
+
+  //     // Fetch actual teams data (not just IDs)
+  //     const teamsResponse = await get<{ teams: Team[] }>(`/games/${gameId}/teams`, {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+  //     setTeams(teamsResponse.data.teams || []);
+
+  //     // If teams array contains strings instead of objects, fetch team details
+  //     if (response.data.teams && response.data.teams.length > 0) {
+  //       if (typeof response.data.teams[0] === 'string') {
+  //         // Teams are UUIDs, need to fetch team details
+  //         const teamPromises = response.data.teams.map(teamId =>
+  //           get<Team>(`/games/teams/${teamId}`, {
+  //             headers: { Authorization: `Bearer ${token}` },
+  //           })
+  //         );
+  //         const teamResponses = await Promise.all(teamPromises);
+  //         setAvailableTeams(teamResponses.map(r => r.data));
+  //       } else {
+  //         setAvailableTeams(response.data.teams as any);
+  //       }
+  //     }
+
+  //   } catch (error) {
+  //     console.error("Error fetching game state:", error);
+  //     toast.error("Failed to load match data");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+  // // Fetch game state
+  // const fetchGameState = async () => {
+  //   if (!id || !token) return;
+
+  //   try {
+  //     // First get the game day info to get the actual game ID
+  //     const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+  //     const gameId = gameDayResponse.data.current_game_id;
+
+  //     if (!gameId) {
+  //       throw new Error("No active game found for today");
+  //     }
+
+  //     // Then use the actual game ID to get the state
+  //     const response = await get<GameState>(`/games/${gameId}/state`, {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+  //     setGameState(response.data);
+
+  //     // Fetch teams data using the game ID
+  //     const teamsResponse = await get<GameResponse>(`/games/${gameId}`, {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+  //     setTeams(teamsResponse.data.teams || []);
+
+  //     // Fetch available teams
+  //     const availableResponse = await get(`/games/${gameId}/available-teams`, {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+  //     setAvailableTeams((availableResponse.data as any).available_teams || []);
+  //   } catch (error) {
+  //     console.error("Error fetching game state:", error);
+  //     toast.error("Failed to load match data");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
   useEffect(() => {
     fetchGameState();
@@ -152,21 +288,37 @@ const LiveMatchPage: React.FC = () => {
   // Check if user is admin or referee
   const isAdmin = user?.role === "admin";
   const isReferee = gameState?.referee === user?.id;
-  const canControlMatch = isAdmin || isReferee;
+  const canControlMatch = gameState?.can_control_match || false;
+
+  // Simplified referee info function
+  const getCurrentRefereeInfo = () => {
+    return gameState?.referee_info || { name: "No referee assigned", team: "" };
+  };
 
   // Get team by ID
-  const getTeamById = (teamId: number) => {
+  const getTeamById = (teamId: string) => {
     return teams.find((team) => team.id === teamId);
   };
 
   // Get team name by ID
-  const getTeamName = (teamId: number) => {
-    const team = getTeamById(teamId);
-    return team?.name || `Team ${teamId}`;
+  const getTeamName = (teamId: number | string) => {
+    // First check if we have team details from the game state
+    if (gameState?.team_details && gameState.team_details[teamId]) {
+      return gameState.team_details[teamId].name;
+    }
+
+    // Fallback to checking the teams array
+    const team = teams.find((team) => team.id === teamId);
+    if (team) {
+      return team.name;
+    }
+
+    // Final fallback
+    return `Team ${teamId}`;
   };
 
   // Start match
-  const handleStartMatch = async (teamAId: number, teamBId: number) => {
+  const handleStartMatch = async (teamAId: string, teamBId: string) => {
     if (!id || !token || !canControlMatch) return;
 
     setSubmitting(true);
@@ -192,7 +344,7 @@ const LiveMatchPage: React.FC = () => {
 
   // Update score
   const handleScoreChange = async (
-    teamId: number,
+    teamId: string,
     action: "increment" | "decrement" | "set",
     value?: number
   ) => {
@@ -236,34 +388,17 @@ const LiveMatchPage: React.FC = () => {
       };
 
       const result = await post(`/games/${id}/coin-toss`, coinTossData, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      toast.success(`Coin toss result: ${(result as any).result.toUpperCase()}`);
+      toast.success(
+        `Coin toss result: ${(result as any).result.toUpperCase()}`
+      );
       setCoinTossMode(false);
       setCoinTossChoices({ team_a_choice: "", team_b_choice: "" });
       await fetchGameState();
     } catch (error) {
       console.error("Error performing coin toss:", error);
       toast.error("Failed to perform coin toss");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Assign referee
-  const handleAssignReferee = async (refereeId: number) => {
-    if (!id || !token || !isAdmin) return;
-
-    setSubmitting(true);
-    try {
-      await post(`/games/${id}/referee`, { referee_id: refereeId }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success("Referee assigned!");
-      await fetchGameState();
-    } catch (error) {
-      console.error("Error assigning referee:", error);
-      toast.error("Failed to assign referee");
     } finally {
       setSubmitting(false);
     }
@@ -357,8 +492,7 @@ const LiveMatchPage: React.FC = () => {
                             -
                           </button>
                           <span className="text-4xl font-bold">
-                            {getTeamById(gameState.current_match!.team_a_id)
-                              ?.score || 0}
+                            {gameState.current_match.team_a_score || 0}
                           </span>
                           <button
                             onClick={() =>
@@ -376,8 +510,7 @@ const LiveMatchPage: React.FC = () => {
                       )}
                       {!canControlMatch && (
                         <span className="text-4xl font-bold">
-                          {getTeamById(gameState.current_match!.team_a_id)
-                            ?.score || 0}
+                          {gameState.current_match.team_a_score || 0}
                         </span>
                       )}
                     </div>
@@ -405,8 +538,7 @@ const LiveMatchPage: React.FC = () => {
                             -
                           </button>
                           <span className="text-4xl font-bold">
-                            {getTeamById(gameState.current_match!.team_b_id)
-                              ?.score || 0}
+                            {gameState.current_match.team_b_score || 0}
                           </span>
                           <button
                             onClick={() =>
@@ -424,8 +556,7 @@ const LiveMatchPage: React.FC = () => {
                       )}
                       {!canControlMatch && (
                         <span className="text-4xl font-bold">
-                          {getTeamById(gameState.current_match!.team_b_id)
-                            ?.score || 0}
+                          {gameState.current_match.team_b_score || 0}
                         </span>
                       )}
                     </div>
@@ -439,14 +570,26 @@ const LiveMatchPage: React.FC = () => {
                   <div className="text-center">
                     <h3 className="font-semibold text-lg mb-2">Referee</h3>
                     <div className="bg-gray-100 rounded-lg p-4">
-                      {gameState.referee ? (
-                        <p className="text-gray-800">
-                          Referee ID: {gameState.referee}
-                        </p>
-                      ) : (
-                        <p className="text-gray-500">No referee assigned</p>
-                      )}
+                      {(() => {
+                        const refereeInfo = getCurrentRefereeInfo();
+                        return (
+                          <>
+                            <p className="text-gray-800">{refereeInfo.name}</p>
+                            {refereeInfo.team && (
+                              <p className="text-sm text-gray-600">
+                                {refereeInfo.team}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
+                    {/* Show if current user can control match */}
+                    {canControlMatch && (
+                      <p className="text-xs text-green-600 mt-2">
+                        You can control this match
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

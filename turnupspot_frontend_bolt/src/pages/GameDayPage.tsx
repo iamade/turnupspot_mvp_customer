@@ -64,6 +64,22 @@ interface ManualParticipant {
   team?: number;
 }
 
+interface PlayBallResponse {
+  message: string;
+  game_id: string;
+  match_id?: string;
+  team1: {
+    id: string;
+    name: string;
+    players: number;
+  };
+  team2: {
+    id: string;
+    name: string;
+    players: number;
+  };
+}
+
 const GameDayPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -221,11 +237,11 @@ const GameDayPage = () => {
   // Add this new function to sync the drafting state
   const syncDraftingState = (participants: ManualParticipant[]) => {
     const maxPlayersPerTeam = gameDayInfo?.max_players_per_team || 5;
-    
+
     // Count players in each team
-    const team1Count = participants.filter(p => p.team === 1).length;
-    const team2Count = participants.filter(p => p.team === 2).length;
-    
+    const team1Count = participants.filter((p) => p.team === 1).length;
+    const team2Count = participants.filter((p) => p.team === 2).length;
+
     // Determine current state
     if (team1Count === 0) {
       // Need to draft team 1
@@ -455,42 +471,67 @@ const GameDayPage = () => {
   const currentPlayers = players.slice(indexOfFirstPlayer, indexOfLastPlayer);
   const totalPages = Math.ceil(players.length / playersPerPage);
 
-  const handlePlayBall = () => {
-    // Check if teams are ready and referee is present
-     try {
-      setLoading(true);
-      
-      // First, ensure teams are properly created in the database
-      if (checkinMode === "manual") {
-        // For manual mode, ensure teams 1 and 2 have GameTeam records
-        const team1Players = manualParticipants.filter(p => p.team === 1);
-        const team2Players = manualParticipants.filter(p => p.team === 2);
-        
-        if (team1Players.length === 0 || team2Players.length === 0) {
-          toast.error("Both Team 1 and Team 2 must have at least one player");
-          return;
+  const handlePlayBall = async () => {
+    if (!id || !token) return;
+
+    setLoading(true);
+    try {
+      const response = await post<PlayBallResponse>(
+        `/games/game-day/${id}/play-ball`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
         }
-      } else {
-        // For automatic mode, ensure teams have GameTeam records
-        const teamsWithPlayers = new Set(
-          players.filter((p) => p.team).map((p) => p.team)
-        );
-        
-        if (teamsWithPlayers.size < 2) {
-          toast.error("At least 2 teams must have players assigned");
-          return;
-        }
-      }
-      
-      // Navigate to live match
+      );
+
+      toast.success(response.data.message);
+      // Navigate to live match page
       navigate(`/my-sports-groups/${id}/live-match`);
-    } catch (error) {
-      console.error("Error preparing for live match:", error);
-      toast.error("Failed to prepare for live match");
+    } catch (error: any) {
+      const errorMessage =
+        error.response?.data?.detail || "Failed to start game";
+      toast.error(errorMessage);
+      console.error("Error starting game:", error);
     } finally {
       setLoading(false);
     }
   };
+  // const handlePlayBall = () => {
+  //   // Check if teams are ready and referee is present
+  //    try {
+  //     setLoading(true);
+
+  //     // First, ensure teams are properly created in the database
+  //     if (checkinMode === "manual") {
+  //       // For manual mode, ensure teams 1 and 2 have GameTeam records
+  //       const team1Players = manualParticipants.filter(p => p.team === 1);
+  //       const team2Players = manualParticipants.filter(p => p.team === 2);
+
+  //       if (team1Players.length === 0 || team2Players.length === 0) {
+  //         toast.error("Both Team 1 and Team 2 must have at least one player");
+  //         return;
+  //       }
+  //     } else {
+  //       // For automatic mode, ensure teams have GameTeam records
+  //       const teamsWithPlayers = new Set(
+  //         players.filter((p) => p.team).map((p) => p.team)
+  //       );
+
+  //       if (teamsWithPlayers.size < 2) {
+  //         toast.error("At least 2 teams must have players assigned");
+  //         return;
+  //       }
+  //     }
+
+  //     // Navigate to live match
+  //     navigate(`/my-sports-groups/${id}/live-match`);
+  //   } catch (error) {
+  //     console.error("Error preparing for live match:", error);
+  //     toast.error("Failed to prepare for live match");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
   // Team drafting functions
   const startDrafting = () => {
@@ -636,13 +677,17 @@ const GameDayPage = () => {
       setSelectedManualParticipants([]);
       await fetchManualParticipants();
       toast.success("Manual participants drafted successfully!");
-    } catch(error) {
-      console.log('Full error:', error);
-      console.log('Error response:', (error as any).response?.data);
-      console.log('Error response.detail:', (error as any).response?.data.detail);
-      
-    
-      const errorMessage = (error as any).response?.data?.detail || "Failed to draft manual participants"
+    } catch (error) {
+      console.log("Full error:", error);
+      console.log("Error response:", (error as any).response?.data);
+      console.log(
+        "Error response.detail:",
+        (error as any).response?.data.detail
+      );
+
+      const errorMessage =
+        (error as any).response?.data?.detail ||
+        "Failed to draft manual participants";
       toast.error(errorMessage);
     }
   };

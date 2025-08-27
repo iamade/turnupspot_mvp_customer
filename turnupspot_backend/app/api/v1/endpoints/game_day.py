@@ -758,7 +758,43 @@ def assign_teams_manual_participants(
                         detail=f"Only the first 10 arrivals can be assigned to Team 1 or 2. Participant ID {pid} is not allowed."
                     )
                     
-
+    # Check max_players_per_team constraint for each team
+    for team_number, participant_ids in assignments.items():
+        # Count current participants already assigned to this team
+        current_team_count = db.query(GameDayParticipant).filter(
+            and_(
+                GameDayParticipant.game_id == current_game.id,
+                GameDayParticipant.team == team_number
+            )
+        ).count()
+        
+        # Also count GamePlayers assigned to this team (registered users)
+        game_team = db.query(GameTeam).filter(
+            and_(
+                GameTeam.game_id == current_game.id,
+                GameTeam.team_number == team_number
+            )
+        ).first()
+        
+        registered_players_count = 0
+        if game_team:
+            registered_players_count = db.query(GamePlayer).filter(
+                and_(
+                    GamePlayer.game_id == current_game.id,
+                    GamePlayer.team_id == game_team.id
+                )
+            ).count()
+        
+        total_current_players = current_team_count + registered_players_count
+        
+        # Check if adding these participants would exceed the limit
+        if total_current_players + len(participant_ids) > sport_group.max_players_per_team:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot assign {len(participant_ids)} participants to Team {team_number}. "
+                       f"Team currently has {total_current_players} players. "
+                       f"Maximum players per team is {sport_group.max_players_per_team}."
+            )
     # Ensure teams exist before assigning participants
     for team_number in assignments.keys():
         if team_number in [1, 2]:  # Only create teams 1 and 2 here

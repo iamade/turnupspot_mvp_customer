@@ -17,37 +17,75 @@ import { get, post } from "../api";
 import { toast } from "react-toastify";
 
 interface Team {
-  id: number;
+  id: string;
   name: string;
   team_number: number;
   captain_id?: number;
   score: number;
 }
 
+// interface Match {
+//   team_a_id: number;
+//   team_b_id: number;
+//   team_a_score?: number;
+//   team_b_score?: number;
+//   winner_id?: number;
+//   is_draw?: boolean;
+//   referee_id?: number;
+//   completed_at?: string;
+//   started_at?: string;
+// }
+
+interface GameState {
+  current_match: Match | null;
+  upcoming_match: {
+    team_a_id: string;
+    team_b_id: string;
+    team_a_name: string;
+    team_b_name: string;
+  } | null;
+  completed_matches: Match[];
+  referee: number | null;
+  coin_toss_state: any | null;
+  teams: string[];
+  team_details: {
+    [key: string]: {
+      id: string;
+      name: string;
+      team_number: number;
+      captain_id?: number;
+    };
+  };
+  players: number[];
+  can_control_match: boolean;
+  referee_info: {
+    name: string;
+    team: string;
+    user_id?: number;
+  };
+  match_timer?: {
+    remaining_seconds: number;
+    is_running: boolean;
+    started_at?: string;
+  };
+}
+
 interface Match {
-  team_a_id: number;
-  team_b_id: number;
+  team_a_id: string;
+  team_b_id: string;
+  team_a_name?: string;
+  team_b_name?: string;
   team_a_score?: number;
   team_b_score?: number;
-  winner_id?: number;
+  winner_id?: string;
   is_draw?: boolean;
   referee_id?: number;
   completed_at?: string;
   started_at?: string;
 }
 
-interface GameState {
-  current_match: Match | null;
-  upcoming_match: Match | null;
-  completed_matches: Match[];
-  referee: number | null;
-  coin_toss_state: any | null;
-  teams: number[];
-  players: number[];
-}
-
 interface AvailableTeam {
-  id: number;
+  id: string;
   name: string;
   team_number: number;
   captain_id?: number;
@@ -73,10 +111,10 @@ interface GameDayInfo {
   };
 }
 
-interface GameResponse {
-  teams: any[]; // or define a proper Team interface
-  // add other properties as needed
-}
+// interface GameResponse {
+//   teams: any[]; // or define a proper Team interface
+//   // add other properties as needed
+// }
 
 const LiveMatchPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -96,18 +134,32 @@ const LiveMatchPage: React.FC = () => {
   });
 
   // Better whistle sound
+  // const whistleSound = new Howl({
+  //   src: ["https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"],
+  //   html5: true,
+  //   volume: 0.7,
+  // });
   const whistleSound = new Howl({
-    src: ["https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"],
+    src: ['/sounds/whistle.mp3', '/sounds/whistle.wav', '/sounds/whistle.ogg'],
     html5: true,
-    volume: 0.7,
+    volume: 0.8,
+    onloaderror: () => {
+      console.warn('Could not load whistle sound file');
+    }
   });
 
-  // Fetch game state
+  // Format timer display
+  const formatTime = (seconds: number): string => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
   const fetchGameState = async () => {
     if (!id || !token) return;
 
     try {
-      // First get the game day info to get the actual game ID
+      // Get the game day info to get the actual game ID
       const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -117,23 +169,37 @@ const LiveMatchPage: React.FC = () => {
         throw new Error("No active game found for today");
       }
 
-      // Then use the actual game ID to get the state
+      // Get the game state with team details
       const response = await get<GameState>(`/games/${gameId}/state`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setGameState(response.data);
 
-      // Fetch teams data using the game ID
-      const teamsResponse = await get<GameResponse>(`/games/${gameId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setTeams(teamsResponse.data.teams || []);
-
-      // Fetch available teams
-      const availableResponse = await get(`/games/${gameId}/available-teams`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAvailableTeams((availableResponse.data as any).available_teams || []);
+      // Try to fetch teams data
+      try {
+        const teamsResponse = await get<{ teams: Team[] }>(
+          `/games/${gameId}/teams`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        setTeams(teamsResponse.data.teams || []);
+      } catch (teamError) {
+        console.warn("Could not fetch teams data:", teamError);
+        // Use team details from game state as fallback
+        if (response.data.team_details) {
+          const teamArray = Object.values(response.data.team_details).map(
+            (team) => ({
+              id: team.id,
+              name: team.name,
+              team_number: team.team_number,
+              captain_id: team.captain_id,
+              score: 0, // Default score
+            })
+          );
+          setTeams(teamArray as Team[]);
+        }
+      }
     } catch (error) {
       console.error("Error fetching game state:", error);
       toast.error("Failed to load match data");
@@ -152,25 +218,53 @@ const LiveMatchPage: React.FC = () => {
   // Check if user is admin or referee
   const isAdmin = user?.role === "admin";
   const isReferee = gameState?.referee === user?.id;
-  const canControlMatch = isAdmin || isReferee;
+  const canControlMatch = gameState?.can_control_match || false;
+
+  // Simplified referee info function
+  const getCurrentRefereeInfo = () => {
+    return gameState?.referee_info || { name: "No referee assigned", team: "" };
+  };
 
   // Get team by ID
-  const getTeamById = (teamId: number) => {
+  const getTeamById = (teamId: string) => {
     return teams.find((team) => team.id === teamId);
   };
 
   // Get team name by ID
-  const getTeamName = (teamId: number) => {
-    const team = getTeamById(teamId);
-    return team?.name || `Team ${teamId}`;
+  const getTeamName = (teamId: number | string) => {
+    // First check if we have team details from the game state
+    if (gameState?.team_details && gameState.team_details[teamId]) {
+      return gameState.team_details[teamId].name;
+    }
+
+    // Fallback to checking the teams array
+    const team = teams.find((team) => team.id === teamId);
+    if (team) {
+      return team.name;
+    }
+
+    // Final fallback
+    return `Team ${teamId}`;
   };
 
   // Start match
-  const handleStartMatch = async (teamAId: number, teamBId: number) => {
+  const handleStartMatch = async (teamAId: string, teamBId: string) => {
     if (!id || !token || !canControlMatch) return;
 
     setSubmitting(true);
     try {
+
+      whistleSound.play();
+
+      await post(
+        `/games/${id}/toggle-timer`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      
+
       await post(
         `/games/${id}/start-match`,
         { team_a_id: teamAId, team_b_id: teamBId },
@@ -179,11 +273,12 @@ const LiveMatchPage: React.FC = () => {
         }
       );
 
-      whistleSound.play();
+      
       toast.success("Match started!");
       await fetchGameState();
     } catch (error) {
       console.error("Error starting match:", error);
+      toast.error("Failed to control timer");
       toast.error("Failed to start match");
     } finally {
       setSubmitting(false);
@@ -192,7 +287,7 @@ const LiveMatchPage: React.FC = () => {
 
   // Update score
   const handleScoreChange = async (
-    teamId: number,
+    teamId: string,
     action: "increment" | "decrement" | "set",
     value?: number
   ) => {
@@ -236,34 +331,17 @@ const LiveMatchPage: React.FC = () => {
       };
 
       const result = await post(`/games/${id}/coin-toss`, coinTossData, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      toast.success(`Coin toss result: ${(result as any).result.toUpperCase()}`);
+      toast.success(
+        `Coin toss result: ${(result as any).result.toUpperCase()}`
+      );
       setCoinTossMode(false);
       setCoinTossChoices({ team_a_choice: "", team_b_choice: "" });
       await fetchGameState();
     } catch (error) {
       console.error("Error performing coin toss:", error);
       toast.error("Failed to perform coin toss");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Assign referee
-  const handleAssignReferee = async (refereeId: number) => {
-    if (!id || !token || !isAdmin) return;
-
-    setSubmitting(true);
-    try {
-      await post(`/games/${id}/referee`, { referee_id: refereeId }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success("Referee assigned!");
-      await fetchGameState();
-    } catch (error) {
-      console.error("Error assigning referee:", error);
-      toast.error("Failed to assign referee");
     } finally {
       setSubmitting(false);
     }
@@ -320,16 +398,38 @@ const LiveMatchPage: React.FC = () => {
               <div className="bg-white rounded-lg shadow-md p-6 text-center">
                 <div className="flex items-center justify-center space-x-4">
                   <Timer className="w-6 h-6 text-gray-600" />
-                  <span className="text-4xl font-bold">7:00</span>
+                  <span className={`text-4xl font-bold ${
+                    gameState.match_timer?.is_running ? 'text-green-600' : 'text-gray-800'
+                  }`}>
+                    {gameState.match_timer 
+                      ? formatTime(gameState.match_timer.remaining_seconds)
+                      : '7:00'
+                    }
+                  </span>
                 </div>
-                {canControlMatch && (
+                 <div className="mt-2">
+                  <span className={`text-sm px-3 py-1 rounded-full ${
+                    gameState.match_timer?.is_running 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {gameState.match_timer?.is_running ? 'Running' : 'Paused'}
+                  </span>
+                </div>
+               {canControlMatch && (
                   <button
-                    onClick={() => whistleSound.play()}
-                    className="mt-4 flex items-center justify-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 w-full"
+                    onClick={handleStartMatch}
+                    className={`mt-4 flex items-center justify-center space-x-2 px-6 py-3 rounded-lg w-full transition-colors ${
+                      gameState.match_timer?.is_running
+                        ? 'bg-red-600 hover:bg-red-700 text-white'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
                     disabled={submitting}
                   >
                     <Whistle className="w-5 h-5" />
-                    <span>Play Whistle</span>
+                    <span>
+                      {gameState.match_timer?.is_running ? 'Pause Timer' : 'Start Timer'}
+                    </span>
                   </button>
                 )}
               </div>
@@ -357,8 +457,7 @@ const LiveMatchPage: React.FC = () => {
                             -
                           </button>
                           <span className="text-4xl font-bold">
-                            {getTeamById(gameState.current_match!.team_a_id)
-                              ?.score || 0}
+                            {gameState.current_match.team_a_score || 0}
                           </span>
                           <button
                             onClick={() =>
@@ -376,8 +475,7 @@ const LiveMatchPage: React.FC = () => {
                       )}
                       {!canControlMatch && (
                         <span className="text-4xl font-bold">
-                          {getTeamById(gameState.current_match!.team_a_id)
-                            ?.score || 0}
+                          {gameState.current_match.team_a_score || 0}
                         </span>
                       )}
                     </div>
@@ -405,8 +503,7 @@ const LiveMatchPage: React.FC = () => {
                             -
                           </button>
                           <span className="text-4xl font-bold">
-                            {getTeamById(gameState.current_match!.team_b_id)
-                              ?.score || 0}
+                            {gameState.current_match.team_b_score || 0}
                           </span>
                           <button
                             onClick={() =>
@@ -424,8 +521,7 @@ const LiveMatchPage: React.FC = () => {
                       )}
                       {!canControlMatch && (
                         <span className="text-4xl font-bold">
-                          {getTeamById(gameState.current_match!.team_b_id)
-                            ?.score || 0}
+                          {gameState.current_match.team_b_score || 0}
                         </span>
                       )}
                     </div>
@@ -439,14 +535,26 @@ const LiveMatchPage: React.FC = () => {
                   <div className="text-center">
                     <h3 className="font-semibold text-lg mb-2">Referee</h3>
                     <div className="bg-gray-100 rounded-lg p-4">
-                      {gameState.referee ? (
-                        <p className="text-gray-800">
-                          Referee ID: {gameState.referee}
-                        </p>
-                      ) : (
-                        <p className="text-gray-500">No referee assigned</p>
-                      )}
+                      {(() => {
+                        const refereeInfo = getCurrentRefereeInfo();
+                        return (
+                          <>
+                            <p className="text-gray-800">{refereeInfo.name}</p>
+                            {refereeInfo.team && (
+                              <p className="text-sm text-gray-600">
+                                {refereeInfo.team}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
+                    {/* Show if current user can control match */}
+                    {canControlMatch && (
+                      <p className="text-xs text-green-600 mt-2">
+                        You can control this match
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -626,39 +734,23 @@ const LiveMatchPage: React.FC = () => {
 
         <div className="space-y-8">
           {/* Upcoming Match Card */}
-          {gameState.upcoming_match && (
+         {gameState?.upcoming_match && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center">
                 <Clock className="w-5 h-5 text-purple-600 mr-2" />
-                Upcoming Match
+                Next Match
               </h2>
               <div className="space-y-4">
                 <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <p className="text-sm text-purple-600 mb-2">Next Up</p>
+                  <p className="text-sm text-purple-600 mb-2">Up Next</p>
                   <p className="text-xl font-bold">
                     {getTeamName(gameState.upcoming_match.team_a_id)} vs{" "}
                     {getTeamName(gameState.upcoming_match.team_b_id)}
                   </p>
-                  {gameState.upcoming_match.coin_toss_winner && (
-                    <p className="text-sm text-yellow-600 mt-2">
-                      Coin toss winner
-                    </p>
-                  )}
                 </div>
-                {canControlMatch && (
-                  <button
-                    onClick={() =>
-                      handleStartMatch(
-                        gameState.upcoming_match!.team_a_id,
-                        gameState.upcoming_match!.team_b_id
-                      )
-                    }
-                    className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700"
-                    disabled={submitting}
-                  >
-                    {submitting ? "Starting..." : "Start Match"}
-                  </button>
-                )}
+                <p className="text-xs text-gray-500 text-center">
+                  Will start automatically when current match ends
+                </p>
               </div>
             </div>
           )}

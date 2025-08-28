@@ -16,8 +16,8 @@ class GameTeamCreate(GameTeamBase):
 
 
 class GameTeamResponse(GameTeamBase):
-    id: int
-    game_id: int
+    id: str
+    game_id: str
     score: int
     goals_scored: int
     goals_conceded: int
@@ -29,7 +29,7 @@ class GameTeamResponse(GameTeamBase):
 
 class GamePlayerBase(BaseModel):
     member_id: int
-    team_id: Optional[int] = None
+    team_id: Optional[str] = None
     status: PlayerStatus = PlayerStatus.EXPECTED
 
 
@@ -39,7 +39,7 @@ class GamePlayerCreate(GamePlayerBase):
 
 class GamePlayerUpdate(BaseModel):
     status: Optional[PlayerStatus] = None
-    team_id: Optional[int] = None
+    team_id: Optional[str] = None
     arrival_time: Optional[datetime] = None
     check_in_location_lat: Optional[str] = None
     check_in_location_lng: Optional[str] = None
@@ -77,7 +77,7 @@ class GameBase(BaseModel):
 
 
 class GameCreate(GameBase):
-    sport_group_id: int
+    sport_group_id: str
     teams: Optional[List[GameTeamCreate]] = []
     players: Optional[List[GamePlayerCreate]] = []
 
@@ -96,8 +96,8 @@ class GameUpdate(BaseModel):
 
 
 class GameResponse(BaseModel):
-    id: int
-    sport_group_id: int
+    id: str
+    sport_group_id: str
     status: GameStatus
     current_time: int
     is_timer_running: bool
@@ -121,6 +121,6 @@ class GameTimerUpdate(BaseModel):
 
 
 class GameScoreUpdate(BaseModel):
-    team_id: int
+    team_id: str
     action: str  # "increment", "decrement", "set"
     value: Optional[int] = None  # For setting specific score

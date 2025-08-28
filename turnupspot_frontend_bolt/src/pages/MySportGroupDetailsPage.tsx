@@ -11,6 +11,12 @@ import {
   ArrowLeft,
 } from "lucide-react";
 
+interface PlayingDay {
+  id: string;
+  sport_group_id: string;
+  day: string;
+}
+
 interface SportGroup {
   id: string;
   name: string;
@@ -18,7 +24,7 @@ interface SportGroup {
   venue_name: string;
   venue_address: string;
   venue_image_url?: string;
-  playing_days: string;
+  playing_days: PlayingDay[];
   game_start_time: string;
   game_end_time: string;
   max_teams: number;
@@ -118,22 +124,34 @@ const MySportGroupDetailsPage: React.FC = () => {
     group?.current_user_membership?.role === "admin" ||
     group?.current_user_membership?.is_creator;
 
-  const dayNumberToName = (days: string): string => {
-    const dayNames = [
-      "Monday", // 0
-      "Tuesday", // 1
-      "Wednesday", // 2
-      "Thursday", // 3
-      "Friday", // 4
-      "Saturday", // 5
-      "Sunday", // 6
-    ];
-    return days
-      .split(",")
-      .map((d) => dayNames[parseInt(d, 10)] || "")
-      .filter(Boolean)
-      .join(", ");
-  };
+  // const dayNumberToName = (days: string): string => {
+  //   const dayNames = [
+  //     "Monday", // 0
+  //     "Tuesday", // 1
+  //     "Wednesday", // 2
+  //     "Thursday", // 3
+  //     "Friday", // 4
+  //     "Saturday", // 5
+  //     "Sunday", // 6
+  //   ];
+  //   return days
+  //     .split(",")
+  //     .map((d) => dayNames[parseInt(d, 10)] || "")
+  //     .filter(Boolean)
+  //     .join(", ");
+  // };
+
+  const formatPlayingDays = (days: PlayingDay[]): string => {
+  if (!days || !days.length) return 'No days set';
+  
+  return days
+    .map(d => d.day)
+    .sort((a, b) => {
+      const daysOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+      return daysOrder.indexOf(a) - daysOrder.indexOf(b);
+    })
+    .join(', ');
+};
 
   const formatTime = (dateTime: string): string => {
     if (!dateTime) return "";
@@ -172,7 +190,8 @@ const MySportGroupDetailsPage: React.FC = () => {
               <h1 className="text-3xl font-bold inline-block">{group.name}</h1>
               {/* Display playing days and game start time under the group name */}
               <div className="text-gray-600 text-base mt-1">
-                {dayNumberToName(group.playing_days)},{" "}
+                {/* {dayNumberToName(group.playing_days)},{" "} */}
+                {formatPlayingDays(group.playing_days)}
                 {formatTime(group.game_start_time)}
               </div>
               {isAdmin && (

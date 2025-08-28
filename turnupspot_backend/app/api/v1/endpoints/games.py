@@ -229,16 +229,24 @@ def get_game_state(
             SportGroupMember.is_approved == True
         )
     ).first()
+    
     if not membership:
         raise ForbiddenException("Only group members can view game state")
     # Get teams, matches, referee, coin toss state
     teams = db.query(GameTeam).filter(GameTeam.game_id == str(game_id)).all()
     players = db.query(GamePlayer).filter(GamePlayer.game_id == str(game_id)).all()
-    completed_matches = getattr(game, "completed_matches", [])
-    current_match = getattr(game, "current_match", None)
-    upcoming_match = getattr(game, "upcoming_match", None)
-    referee = getattr(game, "referee_id", None)
-    coin_toss_state = getattr(game, "coin_toss_state", None)
+    
+    completed_matches = game.completed_matches or []
+    current_match = game.current_match
+    upcoming_match = game.upcoming_match
+    referee = game.referee_id
+    coin_toss_state = game.coin_toss_state
+    
+    # completed_matches = getattr(game, "completed_matches", [])
+    # current_match = getattr(game, "current_match", None)
+    # upcoming_match = getattr(game, "upcoming_match", None)
+    # referee = getattr(game, "referee_id", None)
+    # coin_toss_state = getattr(game, "coin_toss_state", None)
     return {
         "current_match": current_match,
         "upcoming_match": upcoming_match,

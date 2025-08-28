@@ -17,6 +17,18 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
+// Add response interceptor to handle errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.data?.detail) {
+      // If there's a detail field in the error response, use it as the error message
+      error.message = error.response.data.detail;
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const get = <T = unknown>(
   url: string,
   config?: AxiosRequestConfig

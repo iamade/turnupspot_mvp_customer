@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from "react";
+/// <reference types="@types/google.maps" />
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, BarChart2, Upload, MapPin } from "lucide-react";
+import { ArrowLeft, BarChart2, Upload, MapPin, X } from "lucide-react";
 import { get, put } from "../../api"; // Changed post to put for updates
 import { useAuth } from "../../contexts/AuthContext";
 import { toast } from "react-toastify"; // Added toast for notifications
 
 // Google Places API types
-interface PlaceResult {
+interface PlaceResult extends google.maps.places.AutocompletePrediction {
   place_id: string;
   description: string;
   structured_formatting: {
@@ -25,7 +26,7 @@ interface SportGroupData {
   venue_latitude: number;
   venue_longitude: number;
   venue_image_url?: string;
-  playing_days: string; // Comma-separated string
+  playing_days: string[]; // Comma-separated string
   game_start_time: string; // ISO format string
   game_end_time: string; // ISO format string
   max_teams: number;
@@ -35,22 +36,40 @@ interface SportGroupData {
   sports_type: string; // This field is not updated in the PUT request
 }
 
-const dayNameToNumber: Record<string, number> = {
-  Monday: 0,
-  Tuesday: 1,
-  Wednesday: 2,
-  Thursday: 3,
-  Friday: 4,
-  Saturday: 5,
-  Sunday: 6,
-};
+const DAYS_OF_WEEK = [
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
+];
 
 const EditSportGroupForm: React.FC = () => {
   const { id } = useParams<{ id: string }>(); // Get group ID from URL
   const navigate = useNavigate();
   const { token } = useAuth();
+  const [loading, setLoading] = useState(true);
+  interface FormDataState {
+    name: string;
+    description: string;
+    venue: string;
+    address: string;
+    latitude: string;
+    longitude: string;
+    maxTeams: string;
+    maxPlayersPerTeam: string;
+    playingDays: string[];
+    gameStartTime: string;
+    gameEndTime: string;
+    rules: string;
+    refereeRequired: boolean;
+    venueImage: File | null;
+    venueImagePreview: string;
+  }
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormDataState>({
     name: "",
     description: "",
     venue: "",
@@ -59,17 +78,18 @@ const EditSportGroupForm: React.FC = () => {
     longitude: "",
     maxTeams: "",
     maxPlayersPerTeam: "",
-    playingDays: [] as string[],
+    playingDays: [],
     gameStartTime: "",
     gameEndTime: "",
     rules: "",
     refereeRequired: false,
-    venueImage: null as File | null,
+    venueImage: null,
     venueImagePreview: "",
   });
 
   const [loadingGroupData, setLoadingGroupData] = useState(true);
   const [groupNotFound, setGroupNotFound] = useState(false);
+  const dataLoaded = useRef(false);
 
   // Google Places API state
   const [addressSuggestions, setAddressSuggestions] = useState<PlaceResult[]>(
@@ -77,6 +97,7 @@ const EditSportGroupForm: React.FC = () => {
   );
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+ 
 
   // Load Google Places API
   useEffect(() => {
@@ -86,38 +107,67 @@ const EditSportGroupForm: React.FC = () => {
         console.error(
           "Google Maps API key is not configured. Please add VITE_GOOGLE_MAPS_API_KEY to your .env file"
         );
-        return;
+        return Promise.reject(new Error("Google Maps API key not configured"));
       }
 
-      if (window.google && window.google.maps) {
-        return;
-      }
+      return new Promise<void>((resolve, reject) => {
+        // Check if API is already loaded
+        if (window.google && window.google.maps && window.google.maps.places) {
+          resolve();
+          return;
+        }
 
-      if (document.querySelector('script[src*="maps.googleapis.com"]')) {
-        return;
-      }
+        // Check if script is already being loaded
+        if (document.querySelector('script[src*="maps.googleapis.com"]')) {
+          const checkLoaded = setInterval(() => {
+            if (
+              window.google &&
+              window.google.maps &&
+              window.google.maps.places
+            ) {
+              clearInterval(checkLoaded);
+              resolve();
+            }
+          }, 100);
+          return;
+        }
 
-      const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-      script.async = true;
-      script.defer = true;
-      script.onerror = () => {
-        console.error("Failed to load Google Maps API");
-      };
-      document.head.appendChild(script);
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+        script.async = true;
+        script.defer = true;
+        // script.nonce = "your-csp-nonce"; // Add if you're using CSP nonces
+
+        script.onload = () => resolve();
+        script.onerror = () => {
+          console.error("Failed to load Google Maps API");
+          reject(new Error("Failed to load Google Maps API"));
+        };
+        document.head.appendChild(script);
+      });
     };
 
-    loadGooglePlacesAPI();
+    loadGooglePlacesAPI()
+      .then(() => {
+        // Google Maps API is loaded and ready
+        console.log("Google Maps API loaded successfully");
+      })
+      .catch((error) => {
+        console.error("Error loading Google Maps API:", error);
+      });
   }, []);
 
   // Fetch existing group data
   useEffect(() => {
-    if (!id || !token) {
+    if (!id || !token || dataLoaded.current) {
       setLoadingGroupData(false);
       return;
     }
 
     const fetchGroupData = async () => {
+      if(dataLoaded.current) return;
+
+      setLoadingGroupData(true);
       try {
         const res = await get<SportGroupData>(`/sport-groups/${id}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -149,9 +199,9 @@ const EditSportGroupForm: React.FC = () => {
           longitude: groupData.venue_longitude.toString(),
           maxTeams: groupData.max_teams.toString(),
           maxPlayersPerTeam: groupData.max_players_per_team.toString(),
-          playingDays: groupData.playing_days
-            .split(",")
-            .map((day) => day.trim()),
+          playingDays: Array.isArray(groupData.playing_days)
+            ? groupData.playing_days
+            : [],
           gameStartTime: gameStartTime,
           gameEndTime: gameEndTime,
           rules: groupData.rules || "",
@@ -159,6 +209,8 @@ const EditSportGroupForm: React.FC = () => {
           venueImage: null, // No file object, only URL
           venueImagePreview: groupData.venue_image_url || "",
         });
+
+        dataLoaded.current = true;
       } catch (error: any) {
         if (error.response && error.response.status === 404) {
           setGroupNotFound(true);
@@ -185,7 +237,8 @@ const EditSportGroupForm: React.FC = () => {
 
     if (value.length > 3) {
       try {
-        const service = new window.google.maps.places.AutocompleteService();
+        const service = new (window.google.maps.places
+          .AutocompleteService as any)();
         const results = await new Promise<
           google.maps.places.AutocompletePrediction[]
         >((resolve, reject) => {
@@ -307,46 +360,99 @@ const EditSportGroupForm: React.FC = () => {
     }
 
     try {
-      const submitData = new FormData();
-      submitData.append("name", formData.name);
-      submitData.append("description", formData.description);
-      submitData.append("venue_name", formData.venue);
-      submitData.append("venue_address", formData.address);
-      submitData.append("venue_latitude", formData.latitude);
-      submitData.append("venue_longitude", formData.longitude);
-      const playingDaysNumbers = formData.playingDays
-        .map((day) => dayNameToNumber[day])
-        .filter((num) => num !== undefined)
-        .join(",");
-      submitData.append("playing_days", playingDaysNumbers);
-      submitData.append("game_start_time", formData.gameStartTime);
-      submitData.append("game_end_time", formData.gameEndTime);
-      submitData.append("max_teams", formData.maxTeams);
-      submitData.append("max_players_per_team", formData.maxPlayersPerTeam);
-      submitData.append("rules", formData.rules);
-      submitData.append(
-        "referee_required",
-        formData.refereeRequired.toString()
-      );
+    // Create object instead of FormData for regular fields
+    const updateData = {
+      name: formData.name.trim(),
+      description: formData.description.trim(),
+      venue_name: formData.venue.trim(),
+      venue_address: formData.address.trim(),
+      venue_latitude: parseFloat(formData.latitude),
+      venue_longitude: parseFloat(formData.longitude),
+      playing_days: formData.playingDays,
+      game_start_time: formData.gameStartTime.trim(),
+      game_end_time: formData.gameEndTime.trim(),
+      max_teams: parseInt(formData.maxTeams),
+      max_players_per_team: parseInt(formData.maxPlayersPerTeam),
+      rules: formData.rules ? formData.rules.trim() : "",
+      referee_required: formData.refereeRequired
+    };
 
-      if (formData.venueImage) {
-        submitData.append("venue_image", formData.venueImage);
-      }
+    // If there's a new image, use FormData
+    if (formData.venueImage) {
+      const submitData = new FormData();
+            // For FormData, we need to handle each field individually
+      Object.entries(updateData).forEach(([key, value]) => {
+        if (key === 'playing_days') {
+          // For playing_days, keep it as an array
+          submitData.append(key, JSON.stringify(value));
+        } else {
+          submitData.append(key, String(value));
+        }
+      });
+      // Add the file
+      submitData.append("venue_image", formData.venueImage);
+      // Add other fields as stringified JSON
+      // submitData.append("data", JSON.stringify(updateData));
 
       await put(`/sport-groups/${id}`, submitData, {
-        // Changed to PUT request
         headers: {
           "Content-Type": "multipart/form-data",
           Authorization: `Bearer ${token}`,
         },
       });
+    } else {
+      // If no new image, send JSON directly
+      await put(`/sport-groups/${id}`, updateData, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    }
+
+    // try {
+    //   const submitData = new FormData();
+    //   submitData.append("name", formData.name.trim());
+    //   submitData.append("description", formData.description.trim());
+    //   submitData.append("venue_name", formData.venue.trim());
+    //   submitData.append("venue_address", formData.address.trim());
+    //   submitData.append("venue_latitude", formData.latitude.toString());
+    //   submitData.append("venue_longitude", formData.longitude.toString());
+    //   submitData.append(
+    //     "playing_days",
+    //     JSON.stringify(formData.playingDays.map((day) => day.toUpperCase()))
+    //   );
+    //   submitData.append("game_start_time", formData.gameStartTime.trim());
+    //   submitData.append("game_end_time", formData.gameEndTime.trim());
+    //   submitData.append("max_teams", formData.maxTeams.toString());
+    //   submitData.append(
+    //     "max_players_per_team",
+    //     formData.maxPlayersPerTeam.toString()
+    //   );
+    //   submitData.append("rules", formData.rules ? formData.rules.trim() : "");
+    //   submitData.append(
+    //     "referee_required",
+    //     formData.refereeRequired.toString()
+    //   );
+
+    //   if (formData.venueImage) {
+    //     submitData.append("venue_image", formData.venueImage);
+    //   }
+
+    //   await put(`/sport-groups/${id}`, submitData, {
+    //     // Changed to PUT request
+    //     headers: {
+    //       "Content-Type": "multipart/form-data",
+    //       Authorization: `Bearer ${token}`,
+    //     },
+    //   });
 
       toast.success("Sport group updated successfully!");
       navigate(`/my-sports-groups/${id}`);
-    } catch (error: any) {
-      toast.error(
-        error.response?.data?.detail || "Error updating sport group."
-      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Error updating sport group.";
+      toast.error(errorMessage);
       console.error("Error updating sport group:", error);
     }
   };
@@ -567,6 +673,52 @@ const EditSportGroupForm: React.FC = () => {
                           venueImagePreview: "",
                         })
                       }
+                      className="absolute top-0 right-0 -mt-2 -mr-2 bg-red-500 text-white rounded-full p-1"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="mx-auto h-12 w-12 text-gray-400" />
+                    <div className="flex text-sm text-gray-600">
+                      <label
+                        htmlFor="venue-image"
+                        className="relative cursor-pointer rounded-md font-medium text-indigo-600 hover:text-indigo-500"
+                      >
+                        <span>Upload a file</span>
+                        <input
+                          id="venue-image"
+                          name="venue-image"
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={handleImageChange}
+                        />
+                      </label>
+                      <p className="pl-1">or drag and drop</p>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      PNG, JPG, GIF up to 10MB
+                    </p>
+                  </>
+                )}
+                {/* {formData.venueImagePreview ? (
+                  <div className="relative">
+                    <img
+                      src={formData.venueImagePreview}
+                      alt="Venue preview"
+                      className="mx-auto h-32 w-auto rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          venueImage: null,
+                          venueImagePreview: "",
+                        })
+                      }
                       className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full"
                     >
                       ×
@@ -596,7 +748,7 @@ const EditSportGroupForm: React.FC = () => {
                       PNG, JPG, GIF up to 10MB
                     </p>
                   </>
-                )}
+                )} */}
               </div>
             </div>
           </div>
@@ -611,6 +763,22 @@ const EditSportGroupForm: React.FC = () => {
               Playing Days*
             </label>
             <div className="grid grid-cols-4 gap-2">
+              {daysOfWeek.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => handleDayToggle(day.toUpperCase())}
+                  className={`p-2 text-sm rounded-lg ${
+                    formData.playingDays.includes(day.toUpperCase())
+                      ? "bg-indigo-600 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+            {/* <div className="grid grid-cols-4 gap-2">
               {daysOfWeek.map((day) => (
                 <label
                   key={day}
@@ -629,10 +797,49 @@ const EditSportGroupForm: React.FC = () => {
                   <span className="text-sm">{day.slice(0, 3)}</span>
                 </label>
               ))}
-            </div>
+            </div> */}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label
+                htmlFor="gameStartTime"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Start Time*
+              </label>
+              <input
+                type="time"
+                id="gameStartTime"
+                value={formData.gameStartTime}
+                onChange={(e) =>
+                  setFormData({ ...formData, gameStartTime: e.target.value })
+                }
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="gameEndTime"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                End Time*
+              </label>
+              <input
+                type="time"
+                id="gameEndTime"
+                value={formData.gameEndTime}
+                onChange={(e) =>
+                  setFormData({ ...formData, gameEndTime: e.target.value })
+                }
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                required
+              />
+            </div>
+          </div>
+
+          {/* <div className="grid grid-cols-2 gap-4">
             <div>
               <label
                 htmlFor="gameStartTime"
@@ -669,7 +876,7 @@ const EditSportGroupForm: React.FC = () => {
                 required
               />
             </div>
-          </div>
+          </div> */}
         </div>
 
         {/* Team Configuration */}

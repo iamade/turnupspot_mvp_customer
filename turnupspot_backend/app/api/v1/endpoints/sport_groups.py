@@ -7,11 +7,13 @@ from io import BytesIO
 from fastapi.responses import StreamingResponse
 import os
 from datetime import datetime
+from sqlalchemy.orm import Session, selectinload
+from uuid import uuid4
 
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_optional_current_user
 from app.models.user import User
-from app.models.sport_group import SportGroup, SportGroupMember, MemberRole, SportsType
+from app.models.sport_group import SportGroup, SportGroupMember, MemberRole, SportsType, PlayingDay, Day
 from app.models.chat import ChatRoom, ChatRoomType
 from app.schemas.sport_group import (
     SportGroupCreate, SportGroupUpdate, SportGroupResponse, 
@@ -36,14 +38,25 @@ def get_my_sport_groups(
     created = db.query(SportGroup).filter(SportGroup.created_by == current_user.email)
     # Groups where user is a member
     member = db.query(SportGroup).join(SportGroupMember).filter(SportGroupMember.user_id == current_user.id)
-    # Union and remove duplicates
-    groups = {g.id: g for g in created.all()}
-    for g in member.all():
-        groups[g.id] = g
-    # Add member count to each group
-    for group in groups.values():
-        group.member_count = len([m for m in group.members if m.is_approved])
-    return list(groups.values())
+    groups = db.query(SportGroup).join(
+        SportGroupMember, 
+        SportGroupMember.sport_group_id == SportGroup.id
+    ).options(
+        selectinload(SportGroup.playing_days)  # Explicitly load the relationship
+    ).filter(
+        SportGroupMember.user_id == current_user.id
+    ).all()
+    
+    return groups
+   
+    # # Union and remove duplicates
+    # groups = {g.id: g for g in created.all()}
+    # for g in member.all():
+    #     groups[g.id] = g
+    # # Add member count to each group
+    # for group in groups.values():
+    #     group.member_count = len([m for m in group.members if m.is_approved])
+    # return list(groups.values())
 
 
 @router.post("/", response_model=SportGroupResponse)
@@ -103,45 +116,72 @@ async def create_sport_group(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid time format. Use HH:MM format"
         )
+        
+    try:
+        # Parse the JSON string to get list of day objects
+        import json
+        playing_days_data = json.loads(playing_days)
+        
+        # Convert to PlayingDay model instances
+        playing_days_objects = []
+        for day_data in playing_days_data:
+            playing_day = PlayingDay(
+                id=str(uuid4()),
+                day=Day(day_data["day"]),  # Convert string to Day enum
+                sport_group_id=None  # Will be set when SportGroup is created
+            )
+            playing_days_objects.append(playing_day)
+        
     
-    # Create new sport group
-    db_sport_group = SportGroup(
-        id=str(uuid.uuid4()),
-        name=name,
-        description=description,
-        venue_name=venue_name,
-        venue_address=venue_address,
-        venue_latitude=venue_latitude,
-        venue_longitude=venue_longitude,
-        venue_image_url=venue_image_url,
-        playing_days=playing_days,
-        game_start_time=game_start_datetime,
-        game_end_time=game_end_datetime,
-        max_teams=max_teams,
-        max_players_per_team=max_players_per_team,
-        rules=rules,
-        referee_required=referee_required,
-        sports_type=SportsType(sports_type),
-        created_by=current_user.email,
-        creator_id=current_user.id
-    )
+        # Create new sport group
+        db_sport_group = SportGroup(
+            id=str(uuid.uuid4()),
+            name=name,
+            description=description,
+            venue_name=venue_name,
+            venue_address=venue_address,
+            venue_latitude=venue_latitude,
+            venue_longitude=venue_longitude,
+            venue_image_url=venue_image_url,
+            game_start_time=game_start_datetime,
+            game_end_time=game_end_datetime,
+            max_teams=max_teams,
+            max_players_per_team=max_players_per_team,
+            rules=rules,
+            referee_required=referee_required,
+            sports_type=SportsType(sports_type),
+            created_by=current_user.email,
+            creator_id=current_user.id
+        )
+        
+        db.add(db_sport_group)
+        db.flush()
+        
+        # Now set the sport_group_id for playing_days and add them
+        for playing_day in playing_days_objects:
+            playing_day.sport_group_id = db_sport_group.id
+            db.add(playing_day)
+        
+
+        # Automatically add creator as a member (admin, approved)
+        creator_membership = SportGroupMember(
+            sport_group_id=db_sport_group.id,
+            user_id=current_user.id,
+            role=MemberRole.ADMIN,
+            is_approved=True
+        )
+        db.add(creator_membership)
+        
+        db.commit()
+        db.refresh(db_sport_group)
+
+        return db_sport_group
     
-    db.add(db_sport_group)
-    db.commit()
-    db.refresh(db_sport_group)
-
-    # Automatically add creator as a member (admin, approved)
-    creator_membership = SportGroupMember(
-        sport_group_id=db_sport_group.id,
-        user_id=current_user.id,
-        role=MemberRole.ADMIN,
-        is_approved=True
-    )
-    db.add(creator_membership)
-    db.commit()
-
-    return db_sport_group
-
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid playing_days format: {str(e)}")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creating sport group: {str(e)}")
 
 @router.get("/", response_model=List[SportGroupResponse])
 def get_sport_groups(
@@ -255,9 +295,30 @@ def update_sport_group(
         update_data["venue_latitude"] = latitude
         update_data["venue_longitude"] = longitude
     
+    # Handle playing_days separately
+    playing_days_update = update_data.pop("playing_days", None)
+    
+    # Update other fields
     for field, value in update_data.items():
         setattr(db_sport_group, field, value)
     
+    # Handle playing days update
+    if playing_days_update is not None:
+        # Delete existing playing days
+        db.query(PlayingDay).filter(PlayingDay.sport_group_id == sport_group_id).delete()
+        db.flush() 
+        # Create new playing days
+        for day_string in playing_days_update:
+            # Convert string to Day enum
+            if day_string in [d.value for d in Day]:
+                day_enum = Day(day_string)
+                playing_day = PlayingDay(
+                    id=str(uuid.uuid4()),  # Generate UUID for the playing day
+                    sport_group_id=sport_group_id,
+                    day=day_enum
+                )
+                db.add(playing_day)
+           
     db.commit()
     db.refresh(db_sport_group)
     

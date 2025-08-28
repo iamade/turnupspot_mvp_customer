@@ -68,7 +68,7 @@ class Game(Base):
 class GameTeam(Base):
     __tablename__ = "game_teams"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4())) 
     game_id = Column(String, ForeignKey("games.id"), nullable=False)
     team_name = Column(String, nullable=False)
     team_number = Column(Integer, nullable=False)  # 1, 2, 3, etc.
@@ -96,7 +96,7 @@ class GamePlayer(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     game_id = Column(String, ForeignKey("games.id"), nullable=False)
-    team_id = Column(Integer, ForeignKey("game_teams.id"), nullable=True)
+    team_id = Column(String, ForeignKey("game_teams.id"), nullable=True)
     member_id = Column(Integer, ForeignKey("sport_group_members.id"), nullable=False)
     
     # Player status

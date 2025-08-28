@@ -1,13 +1,13 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Float, Time
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum, Float, Time
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-import enum
+from enum import Enum
 from datetime import datetime, date
 
 from app.core.database import Base
 
 
-class SportsType(str, enum.Enum):
+class SportsType(str, Enum):
     FOOTBALL = "football"
     BASKETBALL = "basketball"
     TENNIS = "tennis"
@@ -23,7 +23,7 @@ class SportsType(str, enum.Enum):
     OTHER = "other"
 
 
-class SkillLevel(str, enum.Enum):
+class SkillLevel(str, Enum):
     ALL = "all"
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
@@ -31,7 +31,7 @@ class SkillLevel(str, enum.Enum):
     PROFESSIONAL = "professional"
 
 
-class AgeGroup(str, enum.Enum):
+class AgeGroup(str, Enum):
     ALL = "all"
     UNDER_18 = "under18"
     EIGHTEEN_TO_TWENTY_FIVE = "18-25"
@@ -39,9 +39,28 @@ class AgeGroup(str, enum.Enum):
     OVER_35 = "over35"
 
 
-class MemberRole(str, enum.Enum):
+class MemberRole(str, Enum):
     ADMIN = "admin"
     MEMBER = "member"
+    
+class Day(str, Enum):
+    MONDAY = "Monday"
+    TUESDAY = "Tuesday"
+    WEDNESDAY = "Wednesday"
+    THURSDAY = "Thursday"
+    FRIDAY = "Friday"
+    SATURDAY = "Saturday"
+    SUNDAY = "Sunday"
+
+class PlayingDay(Base):
+    __tablename__ = "playing_days"
+
+    id = Column(String, primary_key=True)
+    sport_group_id = Column(String, ForeignKey("sport_groups.id", ondelete="CASCADE"))
+    day = Column(SQLEnum(Day))
+
+    # Relationship
+    sport_group = relationship("SportGroup", back_populates="playing_days")
 
 
 class SportGroup(Base):
@@ -55,7 +74,7 @@ class SportGroup(Base):
     venue_image_url = Column(String)
     venue_latitude = Column(Float)
     venue_longitude = Column(Float)
-    playing_days = Column(String, default="0,2,4")  # e.g., "0,2,4" for Mon, Wed, Fri
+    # playing_days = Column(String, default="0,2,4")  # e.g., "0,2,4" for Mon, Wed, Fri
     game_start_time = Column(Time, nullable=False)
     game_end_time = Column(Time, nullable=False)
     max_teams = Column(Integer, nullable=False)
@@ -63,7 +82,7 @@ class SportGroup(Base):
     rules = Column(String)
     referee_required = Column(Boolean, default=False)
     created_by = Column(String, ForeignKey("users.email"), nullable=False)
-    sports_type = Column(Enum(SportsType), nullable=False)
+    sports_type = Column(SQLEnum(SportsType), nullable=False)
     
     # Meta
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -81,6 +100,7 @@ class SportGroup(Base):
     members = relationship("SportGroupMember", back_populates="sport_group")
     games = relationship("Game", back_populates="sport_group")
     chat_room = relationship("ChatRoom", back_populates="sport_group", uselist=False)
+    playing_days = relationship("PlayingDay", back_populates="sport_group", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<SportGroup(id={self.id}, name='{self.name}', sport='{self.sports_type}')>"
@@ -88,8 +108,11 @@ class SportGroup(Base):
     def is_playing_day(self, today: date) -> bool:
         if not self.playing_days:
             return False  # or True if you want every day to be a playing day by default
-        playing_days = [int(d) for d in self.playing_days.split(",") if d.strip().isdigit()]
-        return today.weekday() in playing_days
+        # playing_days = [int(d) for d in self.playing_days.split(",") if d.strip().isdigit()]
+        playing_days = [pd.day.value for pd in self.playing_days]
+        weekday_name = today.strftime("%A")
+        return weekday_name in playing_days
+        # return today.weekday() in playing_days
 
 
 class SportGroupMember(Base):
@@ -98,7 +121,7 @@ class SportGroupMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role = Column(Enum(MemberRole), default=MemberRole.MEMBER)
+    role = Column(SQLEnum(MemberRole), default=MemberRole.MEMBER)
     is_approved = Column(Boolean, default=False)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 

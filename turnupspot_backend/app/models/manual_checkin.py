@@ -7,7 +7,7 @@ class GameDayParticipant(Base):
     __tablename__ = "game_day_participants"
 
     id = Column(Integer, primary_key=True, index=True)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
+    game_id = Column(String, ForeignKey("games.id"), nullable=False)
     name = Column(String, nullable=False)
     email = Column(String, nullable=True)
     phone = Column(String, nullable=True)

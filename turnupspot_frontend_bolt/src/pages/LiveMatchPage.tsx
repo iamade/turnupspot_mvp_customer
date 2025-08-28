@@ -53,6 +53,31 @@ interface AvailableTeam {
   captain_id?: number;
 }
 
+interface GameDayInfo {
+  is_playing_day: boolean;
+  day: string;
+  date: string;
+  game_start_time: string;
+  game_end_time: string;
+  max_teams: number;
+  max_players_per_team: number;
+  check_in_enabled: boolean;
+  current_game_id?: string;
+  game_status?: string;
+  venue_latitude: number;
+  venue_longitude: number;
+  venue_radius: number;
+  current_user_membership?: {
+    role: string;
+    is_creator: boolean;
+  };
+}
+
+interface GameResponse {
+  teams: any[]; // or define a proper Team interface
+  // add other properties as needed
+}
+
 const LiveMatchPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -82,19 +107,33 @@ const LiveMatchPage: React.FC = () => {
     if (!id || !token) return;
 
     try {
-      const response = await get(`/games/${id}/state`, token);
-      setGameState(response);
+      // First get the game day info to get the actual game ID
+      const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const gameId = gameDayResponse.data.current_game_id;
 
-      // Fetch teams data
-      const teamsResponse = await get(`/games/${id}`, token);
-      setTeams(teamsResponse.teams || []);
+      if (!gameId) {
+        throw new Error("No active game found for today");
+      }
+
+      // Then use the actual game ID to get the state
+      const response = await get<GameState>(`/games/${gameId}/state`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGameState(response.data);
+
+      // Fetch teams data using the game ID
+      const teamsResponse = await get<GameResponse>(`/games/${gameId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setTeams(teamsResponse.data.teams || []);
 
       // Fetch available teams
-      const availableResponse = await get(
-        `/games/${id}/available-teams`,
-        token
-      );
-      setAvailableTeams(availableResponse.available_teams || []);
+      const availableResponse = await get(`/games/${gameId}/available-teams`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAvailableTeams((availableResponse.data as any).available_teams || []);
     } catch (error) {
       console.error("Error fetching game state:", error);
       toast.error("Failed to load match data");
@@ -135,8 +174,11 @@ const LiveMatchPage: React.FC = () => {
       await post(
         `/games/${id}/start-match`,
         { team_a_id: teamAId, team_b_id: teamBId },
-        token
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
+
       whistleSound.play();
       toast.success("Match started!");
       await fetchGameState();
@@ -161,7 +203,9 @@ const LiveMatchPage: React.FC = () => {
       await post(
         `/games/${id}/score`,
         { team_id: teamId, action, value },
-        token
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
       toast.success("Score updated!");
       await fetchGameState();
@@ -191,8 +235,10 @@ const LiveMatchPage: React.FC = () => {
         team_b_choice: coinTossChoices.team_b_choice,
       };
 
-      const result = await post(`/games/${id}/coin-toss`, coinTossData, token);
-      toast.success(`Coin toss result: ${result.result.toUpperCase()}`);
+      const result = await post(`/games/${id}/coin-toss`, coinTossData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success(`Coin toss result: ${(result as any).result.toUpperCase()}`);
       setCoinTossMode(false);
       setCoinTossChoices({ team_a_choice: "", team_b_choice: "" });
       await fetchGameState();
@@ -210,7 +256,9 @@ const LiveMatchPage: React.FC = () => {
 
     setSubmitting(true);
     try {
-      await post(`/games/${id}/referee`, { referee_id: refereeId }, token);
+      await post(`/games/${id}/referee`, { referee_id: refereeId }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       toast.success("Referee assigned!");
       await fetchGameState();
     } catch (error) {

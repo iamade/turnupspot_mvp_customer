@@ -63,6 +63,11 @@ interface GameState {
     team: string;
     user_id?: number;
   };
+  match_timer?: {
+    remaining_seconds: number;
+    is_running: boolean;
+    started_at?: string;
+  };
 }
 
 interface Match {
@@ -106,10 +111,10 @@ interface GameDayInfo {
   };
 }
 
-interface GameResponse {
-  teams: any[]; // or define a proper Team interface
-  // add other properties as needed
-}
+// interface GameResponse {
+//   teams: any[]; // or define a proper Team interface
+//   // add other properties as needed
+// }
 
 const LiveMatchPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -129,11 +134,26 @@ const LiveMatchPage: React.FC = () => {
   });
 
   // Better whistle sound
+  // const whistleSound = new Howl({
+  //   src: ["https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"],
+  //   html5: true,
+  //   volume: 0.7,
+  // });
   const whistleSound = new Howl({
-    src: ["https://www.soundjay.com/misc/sounds/bell-ringing-05.wav"],
+    src: ['/sounds/whistle.mp3', '/sounds/whistle.wav', '/sounds/whistle.ogg'],
     html5: true,
-    volume: 0.7,
+    volume: 0.8,
+    onloaderror: () => {
+      console.warn('Could not load whistle sound file');
+    }
   });
+
+  // Format timer display
+  const formatTime = (seconds: number): string => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
 
   const fetchGameState = async () => {
     if (!id || !token) return;
@@ -188,96 +208,6 @@ const LiveMatchPage: React.FC = () => {
     }
   };
 
-  //   const fetchGameState = async () => {
-  //   if (!id || !token) return;
-
-  //   try {
-  //     // First get the game day info to get the actual game ID
-  //     const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     const gameId = gameDayResponse.data.current_game_id;
-
-  //     if (!gameId) {
-  //       throw new Error("No active game found for today");
-  //     }
-
-  //     // Get the game state
-  //     const response = await get<GameState>(`/games/${gameId}/state`, {
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     setGameState(response.data);
-
-  //     // Fetch actual teams data (not just IDs)
-  //     const teamsResponse = await get<{ teams: Team[] }>(`/games/${gameId}/teams`, {
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     setTeams(teamsResponse.data.teams || []);
-
-  //     // If teams array contains strings instead of objects, fetch team details
-  //     if (response.data.teams && response.data.teams.length > 0) {
-  //       if (typeof response.data.teams[0] === 'string') {
-  //         // Teams are UUIDs, need to fetch team details
-  //         const teamPromises = response.data.teams.map(teamId =>
-  //           get<Team>(`/games/teams/${teamId}`, {
-  //             headers: { Authorization: `Bearer ${token}` },
-  //           })
-  //         );
-  //         const teamResponses = await Promise.all(teamPromises);
-  //         setAvailableTeams(teamResponses.map(r => r.data));
-  //       } else {
-  //         setAvailableTeams(response.data.teams as any);
-  //       }
-  //     }
-
-  //   } catch (error) {
-  //     console.error("Error fetching game state:", error);
-  //     toast.error("Failed to load match data");
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
-  // // Fetch game state
-  // const fetchGameState = async () => {
-  //   if (!id || !token) return;
-
-  //   try {
-  //     // First get the game day info to get the actual game ID
-  //     const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     const gameId = gameDayResponse.data.current_game_id;
-
-  //     if (!gameId) {
-  //       throw new Error("No active game found for today");
-  //     }
-
-  //     // Then use the actual game ID to get the state
-  //     const response = await get<GameState>(`/games/${gameId}/state`, {
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     setGameState(response.data);
-
-  //     // Fetch teams data using the game ID
-  //     const teamsResponse = await get<GameResponse>(`/games/${gameId}`, {
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     setTeams(teamsResponse.data.teams || []);
-
-  //     // Fetch available teams
-  //     const availableResponse = await get(`/games/${gameId}/available-teams`, {
-  //       headers: { Authorization: `Bearer ${token}` },
-  //     });
-  //     setAvailableTeams((availableResponse.data as any).available_teams || []);
-  //   } catch (error) {
-  //     console.error("Error fetching game state:", error);
-  //     toast.error("Failed to load match data");
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
   useEffect(() => {
     fetchGameState();
     // Poll for updates every 5 seconds
@@ -323,6 +253,18 @@ const LiveMatchPage: React.FC = () => {
 
     setSubmitting(true);
     try {
+
+      whistleSound.play();
+
+      await post(
+        `/games/${id}/toggle-timer`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      
+
       await post(
         `/games/${id}/start-match`,
         { team_a_id: teamAId, team_b_id: teamBId },
@@ -331,11 +273,12 @@ const LiveMatchPage: React.FC = () => {
         }
       );
 
-      whistleSound.play();
+      
       toast.success("Match started!");
       await fetchGameState();
     } catch (error) {
       console.error("Error starting match:", error);
+      toast.error("Failed to control timer");
       toast.error("Failed to start match");
     } finally {
       setSubmitting(false);
@@ -455,16 +398,38 @@ const LiveMatchPage: React.FC = () => {
               <div className="bg-white rounded-lg shadow-md p-6 text-center">
                 <div className="flex items-center justify-center space-x-4">
                   <Timer className="w-6 h-6 text-gray-600" />
-                  <span className="text-4xl font-bold">7:00</span>
+                  <span className={`text-4xl font-bold ${
+                    gameState.match_timer?.is_running ? 'text-green-600' : 'text-gray-800'
+                  }`}>
+                    {gameState.match_timer 
+                      ? formatTime(gameState.match_timer.remaining_seconds)
+                      : '7:00'
+                    }
+                  </span>
                 </div>
-                {canControlMatch && (
+                 <div className="mt-2">
+                  <span className={`text-sm px-3 py-1 rounded-full ${
+                    gameState.match_timer?.is_running 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {gameState.match_timer?.is_running ? 'Running' : 'Paused'}
+                  </span>
+                </div>
+               {canControlMatch && (
                   <button
-                    onClick={() => whistleSound.play()}
-                    className="mt-4 flex items-center justify-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 w-full"
+                    onClick={handleStartMatch}
+                    className={`mt-4 flex items-center justify-center space-x-2 px-6 py-3 rounded-lg w-full transition-colors ${
+                      gameState.match_timer?.is_running
+                        ? 'bg-red-600 hover:bg-red-700 text-white'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
                     disabled={submitting}
                   >
                     <Whistle className="w-5 h-5" />
-                    <span>Play Whistle</span>
+                    <span>
+                      {gameState.match_timer?.is_running ? 'Pause Timer' : 'Start Timer'}
+                    </span>
                   </button>
                 )}
               </div>
@@ -769,39 +734,23 @@ const LiveMatchPage: React.FC = () => {
 
         <div className="space-y-8">
           {/* Upcoming Match Card */}
-          {gameState.upcoming_match && (
+         {gameState?.upcoming_match && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center">
                 <Clock className="w-5 h-5 text-purple-600 mr-2" />
-                Upcoming Match
+                Next Match
               </h2>
               <div className="space-y-4">
                 <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <p className="text-sm text-purple-600 mb-2">Next Up</p>
+                  <p className="text-sm text-purple-600 mb-2">Up Next</p>
                   <p className="text-xl font-bold">
                     {getTeamName(gameState.upcoming_match.team_a_id)} vs{" "}
                     {getTeamName(gameState.upcoming_match.team_b_id)}
                   </p>
-                  {gameState.upcoming_match.coin_toss_winner && (
-                    <p className="text-sm text-yellow-600 mt-2">
-                      Coin toss winner
-                    </p>
-                  )}
                 </div>
-                {canControlMatch && (
-                  <button
-                    onClick={() =>
-                      handleStartMatch(
-                        gameState.upcoming_match!.team_a_id,
-                        gameState.upcoming_match!.team_b_id
-                      )
-                    }
-                    className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700"
-                    disabled={submitting}
-                  >
-                    {submitting ? "Starting..." : "Start Match"}
-                  </button>
-                )}
+                <p className="text-xs text-gray-500 text-center">
+                  Will start automatically when current match ends
+                </p>
               </div>
             </div>
           )}

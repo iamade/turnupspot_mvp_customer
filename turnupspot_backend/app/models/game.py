@@ -64,6 +64,8 @@ class Game(Base):
 
     id = Column(String, primary_key=True, index=True)
     sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
+    date = Column(DateTime, nullable=False)
+    status = Column(String, default="scheduled")  # scheduled, active, completed
     
     # Game details
     game_date = Column(DateTime, nullable=False)
@@ -82,6 +84,24 @@ class Game(Base):
     # Notes
     notes = Column(Text, nullable=True)
     weather_conditions = Column(String, nullable=True)
+    
+      # Timer fields
+    match_duration_seconds = Column(Integer, default=420)  # 7 minutes default
+    timer_started_at = Column(DateTime, nullable=True)
+    timer_remaining_seconds = Column(Integer, nullable=True)
+    timer_is_running = Column(Boolean, default=False)
+    
+    # Current match info
+    current_match_team_a = Column(String, nullable=True)
+    current_match_team_b = Column(String, nullable=True)
+    current_match_team_a_score = Column(Integer, default=0)
+    current_match_team_b_score = Column(Integer, default=0)
+    current_match_started_at = Column(DateTime, nullable=True)
+    
+    # Team rotation logic
+    team_rotation_order = Column(Text, nullable=True)  # JSON string of team order
+    current_rotation_index = Column(Integer, default=0)
+    
     
     # Meta
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -102,6 +122,19 @@ class Game(Base):
 
     def __repr__(self):
         return f"<Game(id={self.id}, sport_group_id={self.sport_group_id}, status='{self.status}')>"
+    
+    def get_remaining_time(self) -> int:
+        """Calculate remaining time in seconds"""
+        if not self.timer_is_running or not self.timer_started_at:
+            return self.timer_remaining_seconds or self.match_duration_seconds
+        
+        elapsed = (datetime.utcnow() - self.timer_started_at).total_seconds()
+        remaining = max(0, (self.timer_remaining_seconds or self.match_duration_seconds) - int(elapsed))
+        return remaining
+
+    def is_timer_expired(self) -> bool:
+        """Check if timer has expired"""
+        return self.get_remaining_time() <= 0
 
 
 class GameTeam(Base):

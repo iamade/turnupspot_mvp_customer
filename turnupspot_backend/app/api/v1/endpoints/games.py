@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from uuid import UUID
+import uuid 
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -14,10 +15,16 @@ from app.schemas.game import (
     GamePlayerUpdate, GamePlayerResponse
 )
 from app.core.exceptions import ForbiddenException
-from datetime import datetime
+from datetime import datetime, timezone
 import random
 
 from app.models.manual_checkin import GameDayParticipant
+try:
+    from zoneinfo import ZoneInfo
+    MOUNTAIN_TZ = ZoneInfo("America/Denver")
+except ImportError:
+    import pytz
+    MOUNTAIN_TZ = pytz.timezone("America/Denver")
 
 router = APIRouter()
 
@@ -282,6 +289,22 @@ def get_game_state(
             "captain_id": team.captain_id
         }
         
+     # Determine available teams (teams not currently playing)
+    currently_playing_team_ids = set()
+    if current_match:
+        currently_playing_team_ids.add(current_match.team_a_id)
+        currently_playing_team_ids.add(current_match.team_b_id)
+    
+    available_teams = [
+        {
+            "id": team.id,
+            "name": team.team_name,
+            "team_number": team.team_number,
+            "captain_id": team.captain_id
+        }
+        for team in teams if team.id not in currently_playing_team_ids
+    ]
+        
     # Get the sport group to check if user is admin
     game = db.query(Game).filter(Game.id == game_id).first()
     sport_group = db.query(SportGroup).filter(SportGroup.id == game.sport_group_id).first()
@@ -301,98 +324,47 @@ def get_game_state(
         is_admin = (membership.role == MemberRole.ADMIN or 
                    sport_group.creator_id == current_user.id)
         
-        # Check if user is assigned referee
-        is_assigned_referee = False
-        if current_match and current_match.referee_id:
-            is_assigned_referee = current_match.referee_id == membership.id
+        can_control_match = is_admin
         
-        # Check if user is referee by position (captain of non-playing team)
-        is_referee_by_position = False
-        referee_team_number = None
+        if is_admin:
+            referee_info = {
+                "name": "Admin Referee",
+                "team": "Administrator",
+                "user_id": membership.user_id
+            }
         
-        if current_match and len(teams) >= 5:
-            # Get playing team numbers
-            team_a = team_info.get(current_match.team_a_id)
-            team_b = team_info.get(current_match.team_b_id)
-            
-            if team_a and team_b:
-                playing_teams = sorted([team_a["team_number"], team_b["team_number"]])
-                
-                # Determine referee team based on playing teams
-                if playing_teams == [1, 2]:
-                    referee_team_number = 5
-                elif playing_teams == [3, 4]:
-                    referee_team_number = 1
-                elif playing_teams == [1, 3]:
-                    referee_team_number = 2
-                elif playing_teams == [2, 4]:
-                    referee_team_number = 3
-                elif playing_teams == [1, 4]:
-                    referee_team_number = 6
-                elif playing_teams == [2, 3]:
-                    referee_team_number = 4
-                
-                # Check if current user is captain of referee team
-                if referee_team_number:
-                    referee_team = next((t for t in teams if t.team_number == referee_team_number), None)
-                    if referee_team and referee_team.captain_id == membership.id:
-                        is_referee_by_position = True
-                        referee_info = {
-                            "name": f"{referee_team.team_name} Captain",
-                            "team": f"Team {referee_team.team_number}",
-                            "user_id": membership.user_id
-                        }
-        
-        can_control_match = is_admin or is_assigned_referee or is_referee_by_position
-        
-        # Update referee info if we have specific referee assignment
-        if current_match and current_match.referee_id and not is_referee_by_position:
-            referee_member = db.query(SportGroupMember).filter(
-                SportGroupMember.id == current_match.referee_id
-            ).first()
-            if referee_member:
-                referee_info = {
-                    "name": referee_member.user.full_name,
-                    "team": "Assigned Referee",
-                    "user_id": referee_member.user_id
-                }
-    
-    # Determine upcoming match based on current match result
+        # Determine next match prediction
     upcoming_match = None
-    if current_match:
-        # If current match is 0-0, upcoming should be Team 3 vs Team 4
+    if not current_match and available_teams and len(available_teams) >= 2:
+        # No current match but we have available teams
+        upcoming_match = {
+            "team_a_id": available_teams[0]["id"],
+            "team_b_id": available_teams[1]["id"],
+            "team_a_name": available_teams[0]["name"],
+            "team_b_name": available_teams[1]["name"]
+        }
+    elif current_match and current_match.status == MatchStatus.IN_PROGRESS:
+        # Current match is in progress, predict based on current state
         if current_match.team_a_score == 0 and current_match.team_b_score == 0:
-            team3 = next((t for t in teams if t.team_number == 3), None)
-            team4 = next((t for t in teams if t.team_number == 4), None)
-            if team3 and team4:
+            # If still 0-0, show that next two available teams would play if it ends in draw
+            if len(available_teams) >= 2:
                 upcoming_match = {
-                    "team_a_id": team3.id,
-                    "team_b_id": team4.id,
-                    "team_a_name": team3.team_name,
-                    "team_b_name": team4.team_name
+                    "team_a_id": available_teams[0]["id"],
+                    "team_b_id": available_teams[1]["id"],
+                    "team_a_name": available_teams[0]["name"],
+                    "team_b_name": available_teams[1]["name"]
                 }
-        # Add more logic for other scenarios based on scores
-        elif current_match.team_a_score > current_match.team_b_score:
-            # Winner plays next available team
-            winner_team = team_info.get(current_match.team_a_id)
-            team3 = next((t for t in teams if t.team_number == 3), None)
-            if winner_team and team3:
+        else:
+            # Show likely winner vs next available team
+            likely_winner_id = current_match.team_a_id if current_match.team_a_score > current_match.team_b_score else current_match.team_b_id
+            winner_team = team_info.get(likely_winner_id)
+            
+            if winner_team and available_teams:
                 upcoming_match = {
-                    "team_a_id": current_match.team_a_id,
-                    "team_b_id": team3.id,
+                    "team_a_id": likely_winner_id,
+                    "team_b_id": available_teams[0]["id"],
                     "team_a_name": winner_team["name"],
-                    "team_b_name": team3.team_name
-                }
-        elif current_match.team_b_score > current_match.team_a_score:
-            # Winner plays next available team
-            winner_team = team_info.get(current_match.team_b_id)
-            team3 = next((t for t in teams if t.team_number == 3), None)
-            if winner_team and team3:
-                upcoming_match = {
-                    "team_a_id": current_match.team_b_id,
-                    "team_b_id": team3.id,
-                    "team_a_name": winner_team["name"],
-                    "team_b_name": team3.team_name
+                    "team_b_name": available_teams[0]["name"]
                 }
     
     return {
@@ -403,7 +375,8 @@ def get_game_state(
             "team_b_name": team_info.get(current_match.team_b_id, {}).get("name", "Unknown Team"),
             "team_a_score": current_match.team_a_score,
             "team_b_score": current_match.team_b_score,
-            "started_at": current_match.started_at.isoformat() if current_match.started_at else None
+            "started_at": current_match.started_at.isoformat() if current_match.started_at else None,
+            "status": current_match.status.value
         } if current_match else None,
         "upcoming_match": upcoming_match,
         "completed_matches": [
@@ -421,70 +394,21 @@ def get_game_state(
             }
             for match in completed_matches
         ],
-        "referee": None,  # Implement referee logic if needed
-        "coin_toss_state": None,  # Implement coin toss logic if needed
+        "referee": None,
+        "coin_toss_state": None,
         "teams": [team.id for team in teams],
-        "team_details": team_info,  # Add team details for frontend
+        "team_details": team_info,
+        "available_teams": available_teams,  # Add available teams to response
         "players": [],
         "can_control_match": can_control_match,
         "referee_info": referee_info
     }
-
-# @router.get("/{game_id}/state")
-# def get_game_state(
-#     game_id: str,
-#     current_user: User = Depends(get_current_user),
-#     db: Session = Depends(get_db)
-# ):
-#     """Get current game state including matches"""
-#     # Get current match
-#     current_match = db.query(Match).filter(
-#         and_(
-#             Match.game_id == game_id,
-#             Match.status.in_([MatchStatus.IN_PROGRESS])
-#         )
-#     ).first()
     
-#     # Get completed matches
-#     completed_matches = db.query(Match).filter(
-#         and_(
-#             Match.game_id == game_id,
-#             Match.status == MatchStatus.COMPLETED
-#         )
-#     ).order_by(Match.completed_at.desc()).all()
     
-#     # Get teams
-#     teams = db.query(GameTeam).filter(GameTeam.game_id == game_id).all()
-#     team_ids = [team.id for team in teams]
-    
-#     return {
-#         "current_match": {
-#             "team_a_id": current_match.team_a_id,
-#             "team_b_id": current_match.team_b_id,
-#             "team_a_score": current_match.team_a_score,
-#             "team_b_score": current_match.team_b_score,
-#             "started_at": current_match.started_at.isoformat() if current_match.started_at else None
-#         } if current_match else None,
-#         "upcoming_match": None,  # You can implement match scheduling logic here
-#         "completed_matches": [
-#             {
-#                 "team_a_id": match.team_a_id,
-#                 "team_b_id": match.team_b_id,
-#                 "team_a_score": match.team_a_score,
-#                 "team_b_score": match.team_b_score,
-#                 "winner_id": match.winner_id,
-#                 "is_draw": match.is_draw,
-#                 "completed_at": match.completed_at.isoformat() if match.completed_at else None
-#             }
-#             for match in completed_matches
-#         ],
-#         "referee": None,  # Implement referee logic
-#         "coin_toss_state": None,  # Implement coin toss logic
-#         "teams": team_ids,
-#         "players": []
-#     }
 
 
+
+# Update the coin toss endpoint to handle the rotation properly
 @router.post("/{game_id}/coin-toss")
 def coin_toss(
     game_id: UUID,
@@ -492,10 +416,12 @@ def coin_toss(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Perform a coin toss for a draw. Body: {team_a_id, team_b_id, team_a_choice, team_b_choice}"""
+    """Perform a coin toss for a draw"""
     game = db.query(Game).filter(Game.id == str(game_id)).first()
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Check permissions
     membership = db.query(SportGroupMember).filter(
         and_(
             SportGroupMember.sport_group_id == game.sport_group_id,
@@ -503,50 +429,103 @@ def coin_toss(
             SportGroupMember.is_approved == True
         )
     ).first()
+    
     if not membership or membership.role != MemberRole.ADMIN:
         raise ForbiddenException("Only admin can perform coin toss")
     
     # Simulate coin toss
     result = random.choice(["heads", "tails"])
-    winner = data["team_a_id"] if data["team_a_choice"] == result else data["team_b_id"]
-    loser = data["team_b_id"] if data["team_a_choice"] == result else data["team_a_id"]
+    coin_toss_winner_id = data["team_a_id"] if data["team_a_choice"] == result else data["team_b_id"]
+    coin_toss_loser_id = data["team_b_id"] if data["team_a_choice"] == result else data["team_a_id"]
     
-    # Store coin toss state (for audit)
-    game.coin_toss_state = {
-        "team_a_id": data["team_a_id"],
-        "team_b_id": data["team_b_id"],
-        "team_a_choice": data["team_a_choice"],
-        "team_b_choice": data["team_b_choice"],
-        "result": result,
-        "winner": winner,
-        "loser": loser,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    
-    # Set upcoming match based on coin toss result
-    # Winner plays first, loser plays second
-    completed_matches = getattr(game, "completed_matches", [])
-    next_opponent = _find_next_opponent(str(game_id), winner, completed_matches, db)
-    
-    if next_opponent:
-        game.upcoming_match = {
-            "team_a_id": winner,
-            "team_b_id": next_opponent,
-            "created_at": datetime.utcnow().isoformat(),
-            "coin_toss_winner": True
-        }
-        # Auto-assign referee from non-playing teams
-        new_referee_id = _assign_referee_from_non_playing_teams(
-            str(game_id), winner, next_opponent, db
+    # Get team statistics for rotation
+    all_teams = db.query(GameTeam).filter(GameTeam.game_id == str(game_id)).order_by(GameTeam.team_number).all()
+    completed_matches = db.query(Match).filter(
+        and_(
+            Match.game_id == str(game_id),
+            Match.status == MatchStatus.COMPLETED
         )
-        if new_referee_id:
-            game.referee_id = new_referee_id
-    else:
-        # No more teams to play
-        game.upcoming_match = None
+    ).all()
     
-    db.commit()
-    return {"result": result, "winner": winner, "upcoming_match": game.upcoming_match}
+    # Build team stats
+    team_stats = {}
+    for team in all_teams:
+        team_stats[team.id] = {
+            "team": team,
+            "has_played": False,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "is_currently_playing": False
+        }
+    
+    for match in completed_matches:
+        team_stats[match.team_a_id]["has_played"] = True
+        team_stats[match.team_b_id]["has_played"] = True
+        
+        if match.is_draw:
+            team_stats[match.team_a_id]["draws"] += 1
+            team_stats[match.team_b_id]["draws"] += 1
+        elif match.winner_id == match.team_a_id:
+            team_stats[match.team_a_id]["wins"] += 1
+            team_stats[match.team_b_id]["losses"] += 1
+        elif match.winner_id == match.team_b_id:
+            team_stats[match.team_b_id]["wins"] += 1
+            team_stats[match.team_a_id]["losses"] += 1
+    
+    # Winner of coin toss plays first, get their next opponent
+    winner_team = db.query(GameTeam).filter(GameTeam.id == coin_toss_winner_id).first()
+    exclude_teams = {coin_toss_winner_id, coin_toss_loser_id}  # Exclude both teams from the draw
+    available_opponents = _get_next_available_teams(team_stats, exclude_teams)
+    
+    if winner_team and available_opponents:
+        # Create next match with coin toss winner vs next available team
+        new_match = Match(
+            id=str(uuid.uuid4()),
+            game_id=str(game_id),
+            team_a_id=coin_toss_winner_id,
+            team_b_id=available_opponents[0].id,
+            team_a_score=0,
+            team_b_score=0,
+            status=MatchStatus.SCHEDULED,
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(new_match)
+        
+        # Store coin toss result
+        game.coin_toss_state = {
+            "team_a_id": data["team_a_id"],
+            "team_b_id": data["team_b_id"],
+            "team_a_choice": data["team_a_choice"],
+            "team_b_choice": data["team_b_choice"],
+            "result": result,
+            "winner": coin_toss_winner_id,
+            "loser": coin_toss_loser_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "next_match_created": True
+        }
+        
+        db.commit()
+        
+        return {
+            "result": result,
+            "winner": coin_toss_winner_id,
+            "loser": coin_toss_loser_id,
+            "next_match": {
+                "match_id": new_match.id,
+                "team_a_id": coin_toss_winner_id,
+                "team_b_id": available_opponents[0].id,
+                "team_a_name": winner_team.team_name,
+                "team_b_name": available_opponents[0].team_name
+            }
+        }
+    
+    return {
+        "result": result,
+        "winner": coin_toss_winner_id,
+        "loser": coin_toss_loser_id,
+        "message": "Coin toss completed but no next match created"
+    }
 
 @router.post("/{game_id}/referee")
 def assign_referee(
@@ -720,7 +699,544 @@ def update_team_score(
         "winner_id": winner_id,
         "requires_coin_toss": is_draw
     }
+    
+@router.post("/{game_id}/match/start-scheduled")
+def start_scheduled_match(
+    game_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Start a scheduled match"""
+    game_id_str = str(game_id)
+    game = db.query(Game).filter(Game.id == game_id_str).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Get scheduled match
+    scheduled_match = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id_str,
+            Match.status == MatchStatus.SCHEDULED
+        )
+    ).first()
+    
+    if not scheduled_match:
+        raise HTTPException(status_code=404, detail="No scheduled match found")
+    
+    # Check permissions
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == game.sport_group_id,
+            SportGroupMember.user_id == current_user.id
+        )
+    ).first()
+    
+    sport_group = db.query(SportGroup).filter(SportGroup.id == game.sport_group_id).first()
+    is_admin = (membership and membership.role == MemberRole.ADMIN) or sport_group.creator_id == current_user.id
+    
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can start matches")
+    
+    # Start the match
+    scheduled_match.status = MatchStatus.IN_PROGRESS
+    scheduled_match.started_at = datetime.now(timezone.utc)
+    
+    # Reset and start game timer
+    game.timer_started_at = datetime.now(timezone.utc)
+    game.timer_remaining_seconds = 420
+    game.timer_is_running = True
+    game.status = GameStatus.IN_PROGRESS
+    
+    db.commit()
+    
+    return {
+        "message": "Match started successfully",
+        "match_id": scheduled_match.id,
+        "team_a_id": scheduled_match.team_a_id,
+        "team_b_id": scheduled_match.team_b_id
+    }
 
+
+@router.post("/{game_id}/match/score")
+def update_match_score(
+    game_id: UUID,
+    score_update: GameScoreUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update match score directly and handle win conditions"""
+    game_id_str = str(game_id)
+    game = db.query(Game).filter(Game.id == game_id_str).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Get current match
+    current_match = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id_str,
+            Match.status == MatchStatus.IN_PROGRESS
+        )
+    ).first()
+    
+    if not current_match:
+        raise HTTPException(status_code=404, detail="No active match found")
+    
+    # Check permissions
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == game.sport_group_id,
+            SportGroupMember.user_id == current_user.id
+        )
+    ).first()
+    
+    # Check if user can control match (admin or referee)
+    sport_group = db.query(SportGroup).filter(SportGroup.id == game.sport_group_id).first()
+    is_admin = (membership and membership.role == MemberRole.ADMIN) or sport_group.creator_id == current_user.id
+    
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can update scores")
+    
+    # Update the correct team score in the match
+    if score_update.team_id == current_match.team_a_id:
+        if score_update.action == "increment":
+            current_match.team_a_score += 1
+        elif score_update.action == "decrement":
+            current_match.team_a_score = max(0, current_match.team_a_score - 1)
+        elif score_update.action == "set" and score_update.value is not None:
+            current_match.team_a_score = score_update.value
+        new_score = current_match.team_a_score
+    elif score_update.team_id == current_match.team_b_id:
+        if score_update.action == "increment":
+            current_match.team_b_score += 1
+        elif score_update.action == "decrement":
+            current_match.team_b_score = max(0, current_match.team_b_score - 1)
+        elif score_update.action == "set" and score_update.value is not None:
+            current_match.team_b_score = score_update.value
+        new_score = current_match.team_b_score
+    else:
+        raise HTTPException(status_code=400, detail="Team not in current match")
+    
+    # Check for 2-goal lead win condition
+    score_diff = abs(current_match.team_a_score - current_match.team_b_score)
+    match_ended = False
+    next_match_info = None
+    
+    if score_diff >= 2:
+        # End match due to 2-goal lead
+        current_match.status = MatchStatus.COMPLETED
+        current_match.completed_at = datetime.now(timezone.utc)  # Fixed this line
+        
+        if current_match.team_a_score > current_match.team_b_score:
+            current_match.winner_id = current_match.team_a_id
+            winner_id = current_match.team_a_id
+            loser_id = current_match.team_b_id
+        else:
+            current_match.winner_id = current_match.team_b_id
+            winner_id = current_match.team_b_id
+            loser_id = current_match.team_a_id
+        
+        current_match.is_draw = False
+        
+        # Stop the timer and reset it
+        game.timer_is_running = False
+        game.timer_started_at = None
+        game.timer_remaining_seconds = 420
+        
+        # Create next match
+        next_match_info = _create_next_match(game_id_str, current_match, winner_id, loser_id, db)
+        match_ended = True
+    
+    db.commit()
+    
+    return {
+        "message": "Score updated successfully",
+        "team_score": new_score,
+        "team_a_score": current_match.team_a_score,
+        "team_b_score": current_match.team_b_score,
+        "match_ended": match_ended,
+        "winner_id": current_match.winner_id if match_ended else None,
+        "next_match": next_match_info if match_ended else None,
+        "timer_reset": match_ended
+    }
+
+# Update the match end handler to properly detect draws that need coin toss
+@router.post("/{game_id}/match/end")
+def end_current_match(
+    game_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """End current match and determine next match based on rotation rules"""
+    game_id_str = str(game_id)
+    game = db.query(Game).filter(Game.id == game_id_str).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Get current match
+    current_match = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id_str,
+            Match.status == MatchStatus.IN_PROGRESS
+        )
+    ).first()
+    
+    if not current_match:
+        raise HTTPException(status_code=404, detail="No active match found")
+    
+    # Complete the current match
+    current_match.status = MatchStatus.COMPLETED
+    current_match.completed_at = datetime.now(timezone.utc)
+    
+    winner_team_id = None
+    loser_team_id = None
+    requires_coin_toss = False
+    
+    # Determine winner or draw
+    if current_match.team_a_score > current_match.team_b_score:
+        current_match.winner_id = current_match.team_a_id
+        current_match.is_draw = False
+        winner_team_id = current_match.team_a_id
+        loser_team_id = current_match.team_b_id
+    elif current_match.team_b_score > current_match.team_a_score:
+        current_match.winner_id = current_match.team_b_id
+        current_match.is_draw = False
+        winner_team_id = current_match.team_b_id
+        loser_team_id = current_match.team_a_id
+    else:
+        # Draw
+        current_match.is_draw = True
+        current_match.winner_id = None
+        
+        if current_match.team_a_score == 0 and current_match.team_b_score == 0:
+            # 0-0 draw: both teams out
+            winner_team_id = None
+            loser_team_id = None
+        else:
+            # Draw with goals: requires coin toss
+            requires_coin_toss = True
+    
+    # Reset game timer
+    game.timer_is_running = False
+    game.timer_started_at = None
+    game.timer_remaining_seconds = 420
+    
+    next_match_info = None
+    
+    if requires_coin_toss:
+        # Set up coin toss state
+        game.coin_toss_state = {
+            "team_a_id": current_match.team_a_id,
+            "team_b_id": current_match.team_b_id,
+            "pending": True,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        team_a = db.query(GameTeam).filter(GameTeam.id == current_match.team_a_id).first()
+        team_b = db.query(GameTeam).filter(GameTeam.id == current_match.team_b_id).first()
+        
+        next_match_info = {
+            "requires_coin_toss": True,
+            "team_a_id": current_match.team_a_id,
+            "team_b_id": current_match.team_b_id,
+            "team_a_name": team_a.team_name if team_a else "Unknown",
+            "team_b_name": team_b.team_name if team_b else "Unknown",
+            "message": "Match ended in draw - coin toss required"
+        }
+    else:
+        # Create next match automatically
+        next_match_info = _create_next_match(game_id_str, current_match, winner_team_id, loser_team_id, db)
+    
+    db.commit()
+    
+    return {
+        "message": "Match ended",
+        "match_result": {
+            "winner_id": current_match.winner_id,
+            "is_draw": current_match.is_draw,
+            "team_a_score": current_match.team_a_score,
+            "team_b_score": current_match.team_b_score,
+            "requires_coin_toss": requires_coin_toss
+        },
+        "next_match": next_match_info,
+        "timer_reset": True
+    }
+    
+    
+def _create_next_match(game_id: str, completed_match: Match, winner_id: str, loser_id: str, db: Session) -> dict:
+    """Create the next match based on rotation rules and return match info"""
+    # Get all teams for this game ordered by team number
+    all_teams = db.query(GameTeam).filter(GameTeam.game_id == game_id).order_by(GameTeam.team_number).all()
+    
+    if len(all_teams) < 3:
+        return {"message": "Not enough teams for rotation"}
+    
+    # Get all completed matches to track team usage
+    completed_matches = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id,
+            Match.status == MatchStatus.COMPLETED
+        )
+    ).all()
+    
+    # Track team statistics
+    team_stats = {}
+    for team in all_teams:
+        team_stats[team.id] = {
+            "team": team,
+            "has_played": False,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "is_currently_playing": False
+        }
+        
+    # Analyze completed matches
+    for match in completed_matches:
+        # Mark teams as having played
+        team_stats[match.team_a_id]["has_played"] = True
+        team_stats[match.team_b_id]["has_played"] = True
+        
+        if match.is_draw:
+            team_stats[match.team_a_id]["draws"] += 1
+            team_stats[match.team_b_id]["draws"] += 1
+        elif match.winner_id == match.team_a_id:
+            team_stats[match.team_a_id]["wins"] += 1
+            team_stats[match.team_b_id]["losses"] += 1
+        elif match.winner_id == match.team_b_id:
+            team_stats[match.team_b_id]["wins"] += 1
+            team_stats[match.team_a_id]["losses"] += 1
+    
+    # Mark currently playing teams
+    if completed_match:
+        team_stats[completed_match.team_a_id]["is_currently_playing"] = True
+        team_stats[completed_match.team_b_id]["is_currently_playing"] = True
+    
+    next_team_a = None
+    next_team_b = None
+    
+    # Handle different match outcomes
+    if completed_match.is_draw and completed_match.team_a_score == 0 and completed_match.team_b_score == 0:
+        # 0-0 draw: both teams out, next two available teams play
+        available_teams = _get_next_available_teams(team_stats, exclude_teams=set())
+        if len(available_teams) >= 2:
+            next_team_a = available_teams[0]
+            next_team_b = available_teams[1]
+    elif completed_match.is_draw:
+        # Draw with goals: coin toss needed - this should be handled separately
+        return {
+            "message": "Coin toss required for draw",
+            "requires_coin_toss": True,
+            "team_a_id": completed_match.team_a_id,
+            "team_b_id": completed_match.team_b_id,
+            "created": False
+        }
+    elif winner_id:
+        # Winner stays, find next opponent based on priority
+        winner_team = team_stats[winner_id]["team"]
+        next_team_a = winner_team
+        
+        # Get next opponent based on rotation priority
+        exclude_teams = {winner_id}  # Exclude the winner
+        available_opponents = _get_next_available_teams(team_stats, exclude_teams)
+        
+        if available_opponents:
+            next_team_b = available_opponents[0]
+    
+    # Create the next match if we have teams
+    if next_team_a and next_team_b:
+        new_match = Match(
+            id=str(uuid.uuid4()),
+            game_id=game_id,
+            team_a_id=next_team_a.id,
+            team_b_id=next_team_b.id,
+            team_a_score=0,
+            team_b_score=0,
+            status=MatchStatus.SCHEDULED,
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(new_match)
+        db.flush()
+        
+        return {
+            "match_id": new_match.id,
+            "team_a_id": next_team_a.id,
+            "team_b_id": next_team_b.id,
+            "team_a_name": next_team_a.team_name,
+            "team_b_name": next_team_b.team_name,
+            "created": True
+        }
+    
+    return {"message": "No more matches possible", "created": False}
+
+def _get_next_available_teams(team_stats: dict, exclude_teams: set) -> list:
+    """
+    Get next available teams based on priority:
+    1. Teams that have never played (by team number order)
+    2. Teams that have lost (by team number order)
+    3. Teams that have drawn (by team number order)
+    4. Teams that have won (by team number order)
+    """
+    # Separate teams by status
+    never_played = []
+    lost_teams = []
+    drawn_teams = []
+    won_teams = []
+    
+    for team_id, stats in team_stats.items():
+        if team_id in exclude_teams or stats["is_currently_playing"]:
+            continue
+            
+        team = stats["team"]
+        
+        if not stats["has_played"]:
+            never_played.append(team)
+        elif stats["losses"] > 0 and stats["wins"] == 0:
+            # Teams that have only lost (no wins)
+            lost_teams.append(team)
+        elif stats["draws"] > 0 and stats["wins"] == 0 and stats["losses"] == 0:
+            # Teams that have only drawn
+            drawn_teams.append(team)
+        elif stats["wins"] > 0:
+            # Teams that have won at least once
+            won_teams.append(team)
+    
+    # Sort each category by team number for consistent ordering
+    never_played.sort(key=lambda t: t.team_number)
+    lost_teams.sort(key=lambda t: t.team_number)
+    drawn_teams.sort(key=lambda t: t.team_number)
+    won_teams.sort(key=lambda t: t.team_number)
+    
+    # Return in priority order
+    return never_played + lost_teams + drawn_teams + won_teams
+
+
+def _determine_next_match(game_id: str, completed_match: Match, winner_id: str, loser_id: str, db: Session) -> dict:
+    """Determine next match based on rotation rules"""
+    # Get all teams for this game
+    all_teams = db.query(GameTeam).filter(GameTeam.game_id == game_id).order_by(GameTeam.team_number).all()
+    
+    # Get all completed matches
+    completed_matches = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id,
+            Match.status == MatchStatus.COMPLETED
+        )
+    ).all()
+    
+    # Track which teams have played recently
+    recent_players = set()
+    if completed_match:
+        recent_players.add(completed_match.team_a_id)
+        recent_players.add(completed_match.team_b_id)
+    
+    # If draw (0-0 after time), both teams are out - next two teams play
+    if completed_match.is_draw and completed_match.team_a_score == 0 and completed_match.team_b_score == 0:
+        available_teams = [team for team in all_teams if team.id not in recent_players]
+        if len(available_teams) >= 2:
+            return {
+                "team_a_id": available_teams[0].id,
+                "team_b_id": available_teams[1].id,
+                "team_a_name": available_teams[0].team_name,
+                "team_b_name": available_teams[1].team_name
+            }
+    
+    # If there's a winner, winner stays and plays next available team
+    elif winner_id:
+        available_teams = [team for team in all_teams if team.id not in recent_players and team.id != winner_id]
+        if len(available_teams) >= 1:
+            winner_team = db.query(GameTeam).filter(GameTeam.id == winner_id).first()
+            return {
+                "team_a_id": winner_id,
+                "team_b_id": available_teams[0].id,
+                "team_a_name": winner_team.team_name if winner_team else "Unknown",
+                "team_b_name": available_teams[0].team_name
+            }
+    
+    return None
+
+@router.get("/{game_id}/next-match")
+def get_next_match(
+    game_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get details of the next match to be played"""
+    game_id_str = str(game_id)
+    
+    # Get current match to determine what's next
+    current_match = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id_str,
+            Match.status == MatchStatus.IN_PROGRESS
+        )
+    ).first()
+    
+    if current_match:
+        # Current match is ongoing - next match depends on result
+        current_scores = {
+            "team_a_score": current_match.team_a_score,
+            "team_b_score": current_match.team_b_score
+        }
+        
+        # Simulate what next match would be based on current state
+        if current_match.team_a_score == 0 and current_match.team_b_score == 0:
+            # If still 0-0, show that next two teams would play if it ends in draw
+            all_teams = db.query(GameTeam).filter(GameTeam.game_id == game_id_str).order_by(GameTeam.team_number).all()
+            current_players = {current_match.team_a_id, current_match.team_b_id}
+            available_teams = [team for team in all_teams if team.id not in current_players]
+            
+            if len(available_teams) >= 2:
+                return {
+                    "conditional": True,
+                    "condition": "if_draw",
+                    "team_a_id": available_teams[0].id,
+                    "team_b_id": available_teams[1].id,
+                    "team_a_name": available_teams[0].team_name,
+                    "team_b_name": available_teams[1].team_name,
+                    "message": "If current match ends 0-0, these teams play next"
+                }
+        else:
+            # Determine likely winner and show next opponent
+            likely_winner_id = current_match.team_a_id if current_match.team_a_score > current_match.team_b_score else current_match.team_b_id
+            winner_team = db.query(GameTeam).filter(GameTeam.id == likely_winner_id).first()
+            
+            all_teams = db.query(GameTeam).filter(GameTeam.game_id == game_id_str).order_by(GameTeam.team_number).all()
+            current_players = {current_match.team_a_id, current_match.team_b_id}
+            available_teams = [team for team in all_teams if team.id not in current_players]
+            
+            if len(available_teams) >= 1:
+                return {
+                    "conditional": True,
+                    "condition": "if_current_winner_wins",
+                    "team_a_id": likely_winner_id,
+                    "team_b_id": available_teams[0].id,
+                    "team_a_name": winner_team.team_name if winner_team else "Current Winner",
+                    "team_b_name": available_teams[0].team_name,
+                    "message": f"If {winner_team.team_name if winner_team else 'current leader'} wins, they play {available_teams[0].team_name} next"
+                }
+    
+    # Check if there's a scheduled next match
+    next_match = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id_str,
+            Match.status == MatchStatus.SCHEDULED
+        )
+    ).first()
+    
+    if next_match:
+        team_a = db.query(GameTeam).filter(GameTeam.id == next_match.team_a_id).first()
+        team_b = db.query(GameTeam).filter(GameTeam.id == next_match.team_b_id).first()
+        
+        return {
+            "conditional": False,
+            "team_a_id": next_match.team_a_id,
+            "team_b_id": next_match.team_b_id,
+            "team_a_name": team_a.team_name if team_a else "Unknown",
+            "team_b_name": team_b.team_name if team_b else "Unknown",
+            "message": "Next confirmed match"
+        }
+    
+    return {"message": "No next match determined yet"}
 
 def _find_next_opponent(game_id: str, winner_id: str, completed_matches: list, db: Session) -> str:
     """Find the next team to play against the winner."""
@@ -1054,4 +1570,120 @@ def get_available_teams(
         "total_teams": len(all_teams),
         "played_teams": len(played_teams),
         "available_count": len(available_teams)
+    }
+    
+
+@router.post("/{game_id}/timer/start")
+def start_match_timer(
+    game_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Start the match timer (admin or referee only)"""
+    
+    # Convert UUID to string for database query
+    game_id_str = str(game_id)
+    print(f"Looking for game with ID: {game_id_str}")  # Debug log
+    
+    
+    # First, get the game
+    game = db.query(Game).filter(Game.id == game_id_str).first()
+    print(f"Game found: {game is not None}")  # Debug log
+    if not game:
+         # Let's see what games exist
+        # all_games = db.query(Game).all()
+        # print(f"All games in DB: {[g.id for g in all_games]}")  # Debug log
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Check if timer is already running
+    if game.timer_is_running and not game.is_timer_expired():
+        return {
+            "message": "Timer already running",
+            "remaining_seconds": game.get_remaining_time(),
+            "started_at": game.timer_started_at.isoformat() if game.timer_started_at else None
+        }
+    
+    # Look for ANY active match (IN_PROGRESS or SCHEDULED)
+    current_match = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id_str,
+            Match.status.in_([MatchStatus.IN_PROGRESS, MatchStatus.SCHEDULED])
+        )
+    ).first()
+    
+    # If no match found, check if game is in progress and create a basic match
+    if not current_match and game.status == GameStatus.IN_PROGRESS:
+        # Get Team 1 and Team 2 to create a basic match
+        team1 = db.query(GameTeam).filter(
+            and_(GameTeam.game_id == game_id_str, GameTeam.team_number == 1)
+        ).first()
+        team2 = db.query(GameTeam).filter(
+            and_(GameTeam.game_id == game_id_str, GameTeam.team_number == 2)
+        ).first()
+        
+        if team1 and team2:
+            # Create a match between Team 1 and Team 2
+            current_match = Match(
+                id=str(uuid.uuid4()),
+                game_id=game_id_str,
+                team_a_id=team1.id,
+                team_b_id=team2.id,
+                team_a_score=0,
+                team_b_score=0,
+                status=MatchStatus.IN_PROGRESS,
+                started_at=datetime.now(MOUNTAIN_TZ)
+            )
+            db.add(current_match)
+            db.flush()
+        else:
+            raise HTTPException(status_code=404, detail="No teams found to create a match")
+    
+    # Only start timer if it's not already running or has expired
+    if not game.timer_is_running or game.is_timer_expired():
+        # game.timer_started_at = datetime.now(MOUNTAIN_TZ)
+        game.timer_started_at = datetime.now(timezone.utc)
+        game.timer_remaining_seconds = 420  # 7 minutes
+        game.timer_is_running = True
+        game.status = GameStatus.IN_PROGRESS
+        
+    # Update match status to IN_PROGRESS if it was SCHEDULED
+    if current_match.status == MatchStatus.SCHEDULED:
+        current_match.status = MatchStatus.IN_PROGRESS
+        
+    # Update match with timer start if not already started
+    if not current_match.started_at:
+        current_match.started_at = datetime.now(timezone.utc)
+        # current_match.started_at = datetime.now(MOUNTAIN_TZ)
+    
+    
+    db.commit()
+    
+    return {
+        "message": "Match timer started",
+        "remaining_seconds": game.get_remaining_time(),
+        "started_at": current_match.started_at.isoformat(),
+        "match_id": current_match.id,
+        "team_a_id": current_match.team_a_id,
+        "team_b_id": current_match.team_b_id
+    }
+
+@router.get("/{game_id}/timer")
+def get_match_timer(
+    game_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current timer status"""
+    game = db.query(Game).filter(Game.id == str(game_id)).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    remaining_seconds = game.get_remaining_time()
+    
+    return {
+        "is_running": game.timer_is_running,
+        "remaining_seconds": remaining_seconds,
+        "total_seconds": game.match_duration_seconds,
+        "started_at": game.timer_started_at.isoformat() if game.timer_started_at else None,
+        "timer_expired": game.is_timer_expired()
     }

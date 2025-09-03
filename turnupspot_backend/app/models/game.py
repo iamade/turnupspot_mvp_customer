@@ -1,5 +1,5 @@
-import datetime
-from datetime import datetime as dt
+
+from datetime import timezone, datetime as dt
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Enum, Text, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSON
@@ -64,7 +64,7 @@ class Game(Base):
 
     id = Column(String, primary_key=True, index=True)
     sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
-    date = Column(DateTime, nullable=False)
+    # date = Column(DateTime, nullable=False)
     status = Column(String, default="scheduled")  # scheduled, active, completed
     
     # Game details
@@ -128,7 +128,16 @@ class Game(Base):
         if not self.timer_is_running or not self.timer_started_at:
             return self.timer_remaining_seconds or self.match_duration_seconds
         
-        elapsed = (datetime.utcnow() - self.timer_started_at).total_seconds()
+        # Use timezone-aware datetime.now() instead of deprecated utcnow()
+        now = dt.now(timezone.utc)
+        
+        # Ensure timer_started_at is timezone-aware
+        if self.timer_started_at.tzinfo is None:
+            timer_start = self.timer_started_at.replace(tzinfo=timezone.utc)
+        else:
+            timer_start = self.timer_started_at
+        
+        elapsed = (now - timer_start).total_seconds()
         remaining = max(0, (self.timer_remaining_seconds or self.match_duration_seconds) - int(elapsed))
         return remaining
 

@@ -18,7 +18,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.sport_group import SportGroupMember, MemberRole, SportGroup, PlayingDay
-from app.models.game import Game, GameTeam, GamePlayer, GameStatus, PlayerStatus
+from app.models.game import Game, GameTeam, GamePlayer, GameStatus, PlayerStatus, Match, MatchStatus
 from app.core.exceptions import ForbiddenException
 from app.models.manual_checkin import GameDayParticipant
 from app.schemas.manual_checkin import GameDayParticipantCreate, GameDayParticipantOut
@@ -600,6 +600,303 @@ def select_team_players(
     
     return {"message": "Players selected for teams successfully"}
 
+@router.post("/{sport_group_id}/play-ball")
+def play_ball(
+    sport_group_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Start the first match when Play Ball is pressed"""
+    # Check if user is admin or captain
+    membership = db.query(SportGroupMember).filter(
+        and_(
+            SportGroupMember.sport_group_id == sport_group_id,
+            SportGroupMember.user_id == current_user.id,
+            SportGroupMember.is_approved == True
+        )
+    ).first()
+    
+    if not membership:
+        raise ForbiddenException("Only group members can start the game")
+    
+    sport_group = db.query(SportGroup).filter(SportGroup.id == sport_group_id).first()
+    if not sport_group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sport group not found"
+        )
+    
+    # Get current game - look for both SCHEDULED and IN_PROGRESS games
+    today = datetime.now(MOUNTAIN_TZ)
+    current_game = db.query(Game).filter(
+        and_(
+            Game.sport_group_id == sport_group_id,
+            Game.game_date == today.date(),
+            Game.status.in_([GameStatus.SCHEDULED, GameStatus.IN_PROGRESS])  # Include IN_PROGRESS
+        )
+    ).first()
+    
+    if not current_game:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active game found for today"
+        )
+    
+    # Check if user is admin
+    is_admin = membership.role == MemberRole.ADMIN or sport_group.creator_id == current_user.id
+    
+    if not is_admin:
+        raise ForbiddenException("Only admins can start the game")
+    
+    # Check if both Team 1 and Team 2 have players (using manual participants)
+    team1_players = db.query(GameDayParticipant).filter(
+        and_(
+            GameDayParticipant.game_id == current_game.id,
+            GameDayParticipant.team == 1
+        )
+    ).count()
+    
+    team2_players = db.query(GameDayParticipant).filter(
+        and_(
+            GameDayParticipant.game_id == current_game.id,
+            GameDayParticipant.team == 2
+        )
+    ).count()
+    
+    if team1_players == 0 or team2_players == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Both Team 1 and Team 2 must have at least one player before starting"
+        )
+    
+    # Create GameTeam records if they don't exist
+    team1 = db.query(GameTeam).filter(
+        and_(GameTeam.game_id == current_game.id, GameTeam.team_number == 1)
+    ).first()
+    
+    if not team1:
+        team1 = GameTeam(
+            id=str(uuid.uuid4()),
+            game_id=current_game.id,
+            team_name="Team 1",
+            team_number=1,
+        )
+        db.add(team1)
+        db.flush()
+    
+    team2 = db.query(GameTeam).filter(
+        and_(GameTeam.game_id == current_game.id, GameTeam.team_number == 2)
+    ).first()
+    
+    if not team2:
+        team2 = GameTeam(
+            id=str(uuid.uuid4()),
+            game_id=current_game.id,
+            team_name="Team 2",
+            team_number=2,
+        )
+        db.add(team2)
+        db.flush()
+    
+    # Check if a match already exists
+    existing_match = db.query(Match).filter(
+        and_(
+            Match.game_id == current_game.id,
+            Match.status.in_([MatchStatus.SCHEDULED, MatchStatus.IN_PROGRESS])
+        )
+    ).first()
+    
+    if existing_match:
+        # If match already exists, just return the existing match info
+        return {
+            "message": "Match is already in progress!",
+            "game_id": current_game.id,
+            "match_id": existing_match.id,
+            "team1": {
+                "id": team1.id,
+                "name": team1.team_name,
+                "players": team1_players
+            },
+            "team2": {
+                "id": team2.id,
+                "name": team2.team_name,
+                "players": team2_players
+            }
+        }
+    
+    # Create the initial match between Team 1 and Team 2
+    initial_match = Match(
+        id=str(uuid.uuid4()),
+        game_id=current_game.id,
+        team_a_id=team1.id,
+        team_b_id=team2.id,
+        team_a_score=0,
+        team_b_score=0,
+        status=MatchStatus.IN_PROGRESS,
+        started_at=datetime.now(MOUNTAIN_TZ)
+    )
+    
+    db.add(initial_match)
+    
+    # Update game status to IN_PROGRESS
+    current_game.status = GameStatus.IN_PROGRESS
+    
+    db.commit()
+    db.refresh(initial_match)
+    
+    return {
+        "message": "Game started! Team 1 vs Team 2",
+        "game_id": current_game.id,
+        "match_id": initial_match.id,
+        "team1": {
+            "id": team1.id,
+            "name": team1.team_name,
+            "players": team1_players
+        },
+        "team2": {
+            "id": team2.id,
+            "name": team2.team_name,
+            "players": team2_players
+        }
+    }
+# @router.post("/{sport_group_id}/play-ball")
+# def play_ball(
+#     sport_group_id: str,
+#     current_user: User = Depends(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """Start the first match when Play Ball is pressed"""
+#     # Check if user is admin or captain
+#     membership = db.query(SportGroupMember).filter(
+#         and_(
+#             SportGroupMember.sport_group_id == sport_group_id,
+#             SportGroupMember.user_id == current_user.id,
+#             SportGroupMember.is_approved == True
+#         )
+#     ).first()
+    
+#     if not membership:
+#         raise ForbiddenException("Only group members can start the game")
+    
+#     sport_group = db.query(SportGroup).filter(SportGroup.id == sport_group_id).first()
+#     if not sport_group:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Sport group not found"
+#         )
+    
+#     # Get current game
+#     today = datetime.now(MOUNTAIN_TZ)
+#     current_game = db.query(Game).filter(
+#         and_(
+#             Game.sport_group_id == sport_group_id,
+#             Game.game_date == today.date(),
+#             Game.status.in_([GameStatus.SCHEDULED])
+#         )
+#     ).first()
+    
+#     if not current_game:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="No active game found"
+#         )
+    
+#     # Check if user is admin or captain
+#     is_admin = membership.role == MemberRole.ADMIN or sport_group.creator_id == current_user.id
+    
+#     # Check if user is a captain of Team 1 or Team 2
+#     is_captain = False
+#     for team_num in [1, 2]:
+#         team = db.query(GameTeam).filter(
+#             and_(
+#                 GameTeam.game_id == current_game.id,
+#                 GameTeam.team_number == team_num,
+#                 GameTeam.captain_id == membership.id
+#             )
+#         ).first()
+#         if team:
+#             is_captain = True
+#             break
+    
+#     if not (is_admin or is_captain):
+#         raise ForbiddenException("Only admins or team captains can start the game")
+    
+#     # Get Team 1 and Team 2
+#     team1 = db.query(GameTeam).filter(
+#         and_(GameTeam.game_id == current_game.id, GameTeam.team_number == 1)
+#     ).first()
+#     team2 = db.query(GameTeam).filter(
+#         and_(GameTeam.game_id == current_game.id, GameTeam.team_number == 2)
+#     ).first()
+    
+#     if not team1 or not team2:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Both Team 1 and Team 2 must be formed before starting"
+#         )
+    
+#     # Check if both teams have players
+#     team1_players = db.query(GamePlayer).filter(
+#         and_(GamePlayer.game_id == current_game.id, GamePlayer.team_id == team1.id)
+#     ).count()
+#     team2_players = db.query(GamePlayer).filter(
+#         and_(GamePlayer.game_id == current_game.id, GamePlayer.team_id == team2.id)
+#     ).count()
+    
+#     if team1_players == 0 or team2_players == 0:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Both teams must have at least one player before starting"
+#         )
+        
+#      # Check if a match already exists
+#     existing_match = db.query(Match).filter(
+#         and_(
+#             Match.game_id == current_game.id,
+#             Match.status.in_([MatchStatus.SCHEDULED, MatchStatus.IN_PROGRESS])
+#         )
+#     ).first()
+    
+#     if existing_match:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="A match is already in progress"
+#         )
+    
+#     # Create the initial match between Team 1 and Team 2
+#     initial_match = Match(
+#         id=str(uuid.uuid4()),
+#         game_id=current_game.id,
+#         team_a_id=team1.id,
+#         team_b_id=team2.id,
+#         team_a_score=0,
+#         team_b_score=0,
+#         status=MatchStatus.IN_PROGRESS,
+#         started_at=datetime.now(MOUNTAIN_TZ)
+#     )
+    
+#     db.add(initial_match)
+    
+#     # Update game status to IN_PROGRESS
+#     current_game.status = GameStatus.IN_PROGRESS
+    
+#     db.commit()
+#     db.refresh(initial_match)
+    
+#     return {
+#         "message": "Game started! Team 1 vs Team 2",
+#         "game_id": current_game.id,
+#         "team1": {
+#             "id": team1.id,
+#             "name": team1.team_name,
+#             "players": team1_players
+#         },
+#         "team2": {
+#             "id": team2.id,
+#             "name": team2.team_name,
+#             "players": team2_players
+#         }
+#     }
 
 @router.post("/{sport_group_id}/manual-check-in", response_model=List[GameDayParticipantOut])
 def manual_check_in(
@@ -755,7 +1052,7 @@ def assign_teams_manual_participants(
                 
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Only the first 10 arrivals can be assigned to Team 1 or 2. Participant ID {pid} is not allowed."
+                        detail=f"Only the first 10 arrivals can be assigned to Team 1 or 2. Player {participant_name} is not among the first 10 arrivals."
                     )
                     
     # Check max_players_per_team constraint for each team

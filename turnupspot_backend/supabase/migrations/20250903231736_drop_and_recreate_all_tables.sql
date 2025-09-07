@@ -95,7 +95,7 @@ CREATE TABLE sport_groups (
     venue_image_url VARCHAR,
     venue_latitude DOUBLE PRECISION,
     venue_longitude DOUBLE PRECISION,
-    playing_days VARCHAR NOT NULL,
+    playing_days VARCHAR,
     game_start_time TIMESTAMP NOT NULL,
     game_end_time TIMESTAMP NOT NULL,
     max_teams INTEGER NOT NULL,

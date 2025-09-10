@@ -412,22 +412,11 @@ const GameDayPage = () => {
         token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
       );
       await fetchGameDayData();
+      toast.success("Captain assigned successfully!");
     } catch (error: unknown) {
-      let message = "Failed to assign captain. Please try again.";
-      if (error && typeof error === "object" && "response" in error) {
-        const errorResponse = error as {
-          response?: { data?: { detail?: string } };
-        };
-        if (errorResponse.response?.data?.detail) {
-          message = errorResponse.response.data.detail;
-        }
-      } else if (error && typeof error === "object" && "message" in error) {
-        const errorWithMessage = error as { message: string };
-        message = errorWithMessage.message;
-      } else if (typeof error === "string") {
-        message = error;
-      }
-      toast.error(message);
+      const errorMessage = error instanceof Error ? error.message : "Failed to assign captain";
+    toast.error(errorMessage);
+    console.error("Captain assignment error:", error);
     }
   };
 
@@ -487,11 +476,10 @@ const GameDayPage = () => {
       toast.success(response.data.message);
       // Navigate to live match page
       navigate(`/my-sports-groups/${id}/live-match`);
-    } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.detail || "Failed to start game";
-      toast.error(errorMessage);
-      console.error("Error starting game:", error);
+    } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to start game";
+    toast.error(errorMessage);
+    console.error("Error starting game:", error);
     } finally {
       setLoading(false);
     }
@@ -596,21 +584,9 @@ const GameDayPage = () => {
       await fetchGameDayData();
       toast.success("Players drafted successfully!");
     } catch (error: unknown) {
-      let message = "Failed to draft players. Please try again.";
-      if (error && typeof error === "object" && "response" in error) {
-        const errorResponse = error as {
-          response?: { data?: { detail?: string } };
-        };
-        if (errorResponse.response?.data?.detail) {
-          message = errorResponse.response.data.detail;
-        }
-      } else if (error && typeof error === "object" && "message" in error) {
-        const errorWithMessage = error as { message: string };
-        message = errorWithMessage.message;
-      } else if (typeof error === "string") {
-        message = error;
-      }
-      toast.error(message);
+      const errorMessage = error instanceof Error ? error.message : "Failed to draft players";
+    toast.error(errorMessage);
+    console.error("Draft players error:", error);
     }
   };
 
@@ -677,20 +653,13 @@ const GameDayPage = () => {
       setSelectedManualParticipants([]);
       await fetchManualParticipants();
       toast.success("Manual participants drafted successfully!");
-    } catch (error) {
-      console.log("Full error:", error);
-      console.log("Error response:", (error as any).response?.data);
-      console.log(
-        "Error response.detail:",
-        (error as any).response?.data.detail
-      );
-
-      const errorMessage =
-        (error as any).response?.data?.detail ||
-        "Failed to draft manual participants";
-      toast.error(errorMessage);
-    }
-  };
+    } catch (error: any) {
+      // Error message will be shown by the API interceptor
+      const errorMessage = error instanceof Error ? error.message : "Failed to draft manual participants";
+    toast.error(errorMessage);
+    console.error("Draft manual participants error:", error);
+   };
+  }
 
   // Auto-assign remaining manual participants to teams 3+
   const handleAutoAssignManualParticipants = async () => {
@@ -704,8 +673,10 @@ const GameDayPage = () => {
       );
       await fetchManualParticipants();
       toast.success("Remaining players auto-assigned to teams!");
-    } catch {
-      toast.error("Failed to auto-assign remaining players");
+    } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to auto-assign remaining players";
+    toast.error(errorMessage);
+    console.error("Auto-assign error:", error);
     } finally {
       setAutoAssigning(false);
     }
@@ -719,15 +690,15 @@ const GameDayPage = () => {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  if (loading) {
+   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="text-center">Loading game day information...</div>
       </div>
     );
-  }
+   }
 
-  return (
+   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <Link
         to={`/my-sports-groups/${id}`}
@@ -1004,50 +975,107 @@ const GameDayPage = () => {
                             new Date(b.created_at).getTime()
                         );
                       let selectable: typeof sortedManuals = [];
+                      let messageText = "";
                       if (
                         manualDraftingTurn === 1 ||
                         manualDraftingTurn === 2
                       ) {
                         // Only first 10 arrivals can be assigned to Team 1 or 2
                         selectable = sortedManuals.slice(0, 10);
+                        messageText = "Only the first 10 arrivals can be assigned to Team 1 or 2";
                       } else {
                         // Only arrivals 11+ can be assigned to Team 3+
                         selectable = sortedManuals.slice(10);
+                        messageText = "Players from 11th arrival onwards can be assigned to Team 3+";
                       }
-                      return selectable.map((participant) => (
-                        <div
-                          key={participant.id}
-                          className="flex items-center justify-between border-b pb-2"
-                        >
-                          <div>
-                            <span className="font-medium">
-                              {participant.name}
-                            </span>
-                            <span className="ml-2 text-xs text-gray-500">
-                              {participant.email}
-                            </span>
-                            <span className="ml-2 text-xs text-gray-500">
-                              {participant.phone}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() =>
-                              handleManualParticipantSelection(participant.id)
-                            }
-                            className={`px-3 py-1 rounded text-xs ${
-                              selectedManualParticipants.includes(
-                                participant.id
-                              )
-                                ? "bg-green-600 text-white"
-                                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                            }`}
-                          >
-                            {selectedManualParticipants.includes(participant.id)
-                              ? "Selected"
-                              : "Select"}
-                          </button>
-                        </div>
-                      ));
+                      return (
+        <>
+          {messageText && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-600">{messageText}</p>
+            </div>
+          )}
+          {selectable.length === 0 ? (
+            <div className="text-center py-4 text-gray-500">
+              No eligible players available for Team {manualDraftingTurn}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {selectable.map((participant, index) => (
+                <div
+                  key={participant.id}
+                  className="flex items-center justify-between border-b pb-2"
+                >
+                  <div>
+                    <span className="font-medium">
+                      {participant.name}
+                    </span>
+                    <span className="ml-2 text-xs text-gray-500">
+                      (Arrival #{sortedManuals.findIndex(p => p.id === participant.id) + 1})
+                    </span>
+                    <div className="text-xs text-gray-400">
+                      {participant.email && <span>{participant.email}</span>}
+                      {participant.phone && (
+                        <span className="ml-2">{participant.phone}</span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() =>
+                      handleManualParticipantSelection(participant.id)
+                    }
+                    className={`px-3 py-1 rounded text-xs ${
+                      selectedManualParticipants.includes(
+                        participant.id
+                      )
+                        ? "bg-green-600 text-white"
+                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    }`}
+                  >
+                    {selectedManualParticipants.includes(participant.id)
+                      ? "Selected"
+                      : "Select"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      );
+                      // return selectable.map((participant) => (
+                      //   <div
+                      //     key={participant.id}
+                      //     className="flex items-center justify-between border-b pb-2"
+                      //   >
+                      //     <div>
+                      //       <span className="font-medium">
+                      //         {participant.name}
+                      //       </span>
+                      //       <span className="ml-2 text-xs text-gray-500">
+                      //         {participant.email}
+                      //       </span>
+                      //       <span className="ml-2 text-xs text-gray-500">
+                      //         {participant.phone}
+                      //       </span>
+                      //     </div>
+                      //     <button
+                      //       onClick={() =>
+                      //         handleManualParticipantSelection(participant.id)
+                      //       }
+                      //       className={`px-3 py-1 rounded text-xs ${
+                      //         selectedManualParticipants.includes(
+                      //           participant.id
+                      //         )
+                      //           ? "bg-green-600 text-white"
+                      //           : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                      //       }`}
+                      //     >
+                      //       {selectedManualParticipants.includes(participant.id)
+                      //         ? "Selected"
+                      //         : "Select"}
+                      //     </button>
+                      //   </div>
+                      // ));
                     })()}
                   </div>
                 </div>
@@ -1297,7 +1325,7 @@ const GameDayPage = () => {
         )}
       </div>
     </div>
-  );
-};
+   );
+ };
 
 export default GameDayPage;

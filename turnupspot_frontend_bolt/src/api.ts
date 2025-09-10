@@ -1,5 +1,6 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import type { InternalAxiosRequestConfig } from "axios";
+import { toast } from "react-toastify";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1",
@@ -21,11 +22,32 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Extract error message from response
+    let errorMessage = "An unexpected error occurred";
+    
     if (error.response?.data?.detail) {
-      // If there's a detail field in the error response, use it as the error message
-      error.message = error.response.data.detail;
+      errorMessage = error.response.data.detail;
+    } else if (error.response?.data?.message) {
+      errorMessage = error.response.data.message;
+    } else if (error.message) {
+      errorMessage = error.message;
     }
-    return Promise.reject(error);
+
+    // Show toast for specific error codes
+    if (error.response?.status === 401) {
+      toast.error("Authentication required. Please log in again.");
+    } else if (error.response?.status === 403) {
+      toast.error("Permission denied.");
+    } else if (error.response?.status === 404) {
+      toast.error("Resource not found.");
+    } else if (error.response?.status >= 500) {
+      toast.error("Server error occurred. Please try again later.");
+    }
+
+    // Re-throw with the extracted message
+    const enhancedError = new Error(errorMessage);
+    (enhancedError as any).response = error.response;
+    return Promise.reject(enhancedError);
   }
 );
 

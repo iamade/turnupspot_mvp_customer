@@ -156,33 +156,31 @@ const LiveMatchPage: React.FC = () => {
   const [matchEnded, setMatchEnded] = useState<boolean>(false);
   const [gameDayInfo, setGameDayInfo] = useState<GameDayInfo | null>(null);
 
-
   // Add this function to fetch game day info:
-const fetchGameDayInfo = async () => {
-  if (!id || !token) return;
+  const fetchGameDayInfo = async () => {
+    if (!id || !token) return;
 
-  try {
-    const response = await get<GameDayInfo>(`/games/game-day/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setGameDayInfo(response.data);
-  } catch (error) {
-    console.error("Error fetching game day info:", error);
-  }
-};
+    try {
+      const response = await get<GameDayInfo>(`/games/game-day/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGameDayInfo(response.data);
+    } catch (error) {
+      console.error("Error fetching game day info:", error);
+    }
+  };
 
-// Update the useEffect to also fetch game day info:
-useEffect(() => {
-  fetchGameState();
-  fetchGameDayInfo();
-  // Poll for updates every 5 seconds
-  const interval = setInterval(() => {
+  // Update the useEffect to also fetch game day info:
+  useEffect(() => {
     fetchGameState();
     fetchGameDayInfo();
-  }, 5000);
-  return () => clearInterval(interval);
-}, [id, token]);
-
+    // Poll for updates every 5 seconds
+    const interval = setInterval(() => {
+      fetchGameState();
+      fetchGameDayInfo();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [id, token]);
 
   // Fetch timer status from server
   const fetchTimerStatus = async () => {
@@ -415,13 +413,12 @@ useEffect(() => {
   });
 
   useEffect(() => {
-  if (gameState?.coin_toss_state?.pending) {
-    // Automatically show coin toss UI when coin toss is pending
-    setCoinTossMode(false); // Reset to show the "Start Coin Toss" button
-    setCoinTossChoices({ team_a_choice: "", team_b_choice: "" }); // Reset choices
-  }
-}, [gameState?.coin_toss_state]);
-
+    if (gameState?.coin_toss_state?.pending) {
+      // Automatically show coin toss UI when coin toss is pending
+      setCoinTossMode(false); // Reset to show the "Start Coin Toss" button
+      setCoinTossChoices({ team_a_choice: "", team_b_choice: "" }); // Reset choices
+    }
+  }, [gameState?.coin_toss_state]);
 
   // Format timer display
   const formatTime = (seconds: number): string => {
@@ -431,77 +428,77 @@ useEffect(() => {
   };
 
   const fetchGameState = async () => {
-  if (!id || !token) return;
+    if (!id || !token) return;
 
-  try {
-    // Get the game day info to get the actual game ID
-    const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const actualGameId = gameDayResponse.data.current_game_id;
-
-    if (!actualGameId) {
-      throw new Error("No active game found for today");
-    }
-
-    // Store the actual game ID
-    setGameId(actualGameId);
-
-    // Get the game state with team details
-    const response = await get<GameState>(`/games/${actualGameId}/state`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setGameState(response.data);
-
-    // Check if coin toss is required immediately after fetching state
-    if (response.data.coin_toss_state?.pending && !coinTossMode) {
-      // Force UI update to show coin toss section
-      setCoinTossMode(false);
-      toast.info("Coin toss required to determine next match!");
-    }
-
-    // Filter available teams to only show teams with players
-    const teamsWithPlayers = (response.data.available_teams || []).filter(
-      (team) => {
-        return team.player_count && team.player_count > 0;
-      }
-    );
-
-    // Set available teams from the game state
-    setAvailableTeams(teamsWithPlayers);
-
-    // Try to fetch teams data
     try {
-      const teamsResponse = await get<{ teams: Team[] }>(
-        `/games/${actualGameId}/teams`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
+      // Get the game day info to get the actual game ID
+      const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const actualGameId = gameDayResponse.data.current_game_id;
+
+      if (!actualGameId) {
+        throw new Error("No active game found for today");
+      }
+
+      // Store the actual game ID
+      setGameId(actualGameId);
+
+      // Get the game state with team details
+      const response = await get<GameState>(`/games/${actualGameId}/state`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGameState(response.data);
+
+      // Check if coin toss is required immediately after fetching state
+      if (response.data.coin_toss_state?.pending && !coinTossMode) {
+        // Force UI update to show coin toss section
+        setCoinTossMode(false);
+        toast.info("Coin toss required to determine next match!");
+      }
+
+      // Filter available teams to only show teams with players
+      const teamsWithPlayers = (response.data.available_teams || []).filter(
+        (team) => {
+          return team.player_count && team.player_count > 0;
         }
       );
-      setTeams(teamsResponse.data.teams || []);
-    } catch (teamError) {
-      console.warn("Could not fetch teams data:", teamError);
-      // Use team details from game state as fallback
-      if (response.data.team_details) {
-        const teamArray = Object.values(response.data.team_details).map(
-          (team) => ({
-            id: team.id,
-            name: team.name,
-            team_number: team.team_number,
-            captain_id: team.captain_id,
-            score: 0, // Default score
-          })
+
+      // Set available teams from the game state
+      setAvailableTeams(teamsWithPlayers);
+
+      // Try to fetch teams data
+      try {
+        const teamsResponse = await get<{ teams: Team[] }>(
+          `/games/${actualGameId}/teams`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
-        setTeams(teamArray as Team[]);
+        setTeams(teamsResponse.data.teams || []);
+      } catch (teamError) {
+        console.warn("Could not fetch teams data:", teamError);
+        // Use team details from game state as fallback
+        if (response.data.team_details) {
+          const teamArray = Object.values(response.data.team_details).map(
+            (team) => ({
+              id: team.id,
+              name: team.name,
+              team_number: team.team_number,
+              captain_id: team.captain_id,
+              score: 0, // Default score
+            })
+          );
+          setTeams(teamArray as Team[]);
+        }
       }
+    } catch (error) {
+      console.error("Error fetching game state:", error);
+      toast.error("Failed to load match data");
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error("Error fetching game state:", error);
-    toast.error("Failed to load match data");
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   useEffect(() => {
     fetchGameState();
@@ -511,10 +508,11 @@ useEffect(() => {
   }, [id, token]);
 
   // Check if user is admin or referee
-  const isAdmin = user?.role === "admin" || 
-  gameDayInfo?.current_user_membership?.role === "admin" || 
-  gameDayInfo?.current_user_membership?.is_creator || 
-  gameState?.can_control_match;
+  const isAdmin =
+    user?.role === "admin" ||
+    gameDayInfo?.current_user_membership?.role === "admin" ||
+    gameDayInfo?.current_user_membership?.is_creator ||
+    gameState?.can_control_match;
 
   const canControlMatch = gameState?.can_control_match || isAdmin;
 
@@ -650,6 +648,10 @@ useEffect(() => {
       toast.error("Both teams must choose a side");
       return;
     }
+    if (coinTossChoices.team_a_choice === coinTossChoices.team_b_choice) {
+      toast.error("Teams cannot choose the same side!");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -663,9 +665,23 @@ useEffect(() => {
       const result = await post(`/games/${gameId}/coin-toss`, coinTossData, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      toast.success(
-        `Coin toss result: ${(result as any).result.toUpperCase()}`
-      );
+      // Show detailed coin toss result
+      const coinResult = result.data.result;
+      const winnerName = result.data.winner_name;
+      const message = result.data.message;
+
+      toast.success(`🪙 ${message}`, { autoClose: 5000 });
+
+      // Show additional info about next match
+      if (result.data.next_match) {
+        setTimeout(() => {
+          toast.info(
+            `Next Match: ${result.data.next_match.team_a_name} vs ${result.data.next_match.team_b_name}`,
+            { autoClose: 3000 }
+          );
+        }, 1000);
+      }
+
       setCoinTossMode(false);
       setCoinTossChoices({ team_a_choice: "", team_b_choice: "" });
       await fetchGameState();
@@ -1065,6 +1081,12 @@ useEffect(() => {
                   </button>
                 ) : (
                   <div className="space-y-4">
+                    <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                      <p className="text-sm text-yellow-800">
+                        ⚠️ Teams must choose different sides (one heads, one
+                        tails)
+                      </p>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="text-center">
                         <h3 className="font-semibold mb-2">
@@ -1082,7 +1104,12 @@ useEffect(() => {
                               coinTossChoices.team_a_choice === "heads"
                                 ? "bg-blue-600 text-white"
                                 : "bg-gray-200"
+                            } ${
+                              coinTossChoices.team_b_choice === "heads"
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
                             }`}
+                            disabled={coinTossChoices.team_b_choice === "heads"}
                           >
                             Heads
                           </button>
@@ -1097,7 +1124,12 @@ useEffect(() => {
                               coinTossChoices.team_a_choice === "tails"
                                 ? "bg-blue-600 text-white"
                                 : "bg-gray-200"
+                            } ${
+                              coinTossChoices.team_b_choice === "tails"
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
                             }`}
+                            disabled={coinTossChoices.team_b_choice === "tails"}
                           >
                             Tails
                           </button>
@@ -1119,7 +1151,12 @@ useEffect(() => {
                               coinTossChoices.team_b_choice === "heads"
                                 ? "bg-blue-600 text-white"
                                 : "bg-gray-200"
+                            } ${
+                              coinTossChoices.team_a_choice === "heads"
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
                             }`}
+                            disabled={coinTossChoices.team_a_choice === "heads"}
                           >
                             Heads
                           </button>
@@ -1134,7 +1171,12 @@ useEffect(() => {
                               coinTossChoices.team_b_choice === "tails"
                                 ? "bg-blue-600 text-white"
                                 : "bg-gray-200"
+                            } ${
+                              coinTossChoices.team_a_choice === "tails"
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
                             }`}
+                            disabled={coinTossChoices.team_a_choice === "tails"}
                           >
                             Tails
                           </button>
@@ -1144,14 +1186,16 @@ useEffect(() => {
                     <div className="flex space-x-4">
                       <button
                         onClick={handleCoinToss}
-                        className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700"
+                        className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={
                           submitting ||
                           !coinTossChoices.team_a_choice ||
-                          !coinTossChoices.team_b_choice
+                          !coinTossChoices.team_b_choice ||
+                          coinTossChoices.team_a_choice ===
+                            coinTossChoices.team_b_choice
                         }
                       >
-                        {submitting ? "Tossing..." : "Toss Coin"}
+                        {submitting ? "Tossing..." : "🪙 Toss Coin"}
                       </button>
                       <button
                         onClick={() => setCoinTossMode(false)}

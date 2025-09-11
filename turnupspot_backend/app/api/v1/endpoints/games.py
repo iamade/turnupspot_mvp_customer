@@ -339,8 +339,7 @@ def get_game_state(
     # Sort available teams by team number for consistent ordering
     available_teams.sort(key=lambda x: x["team_number"])
     
-    # Determine if we're in knockout stage
-    total_teams_with_players = len(teams_with_players)
+    
     # Check if all teams have played at least once
     teams_that_played = set()
     for match in completed_matches:
@@ -349,8 +348,32 @@ def get_game_state(
         if match.team_b_id in team_info and team_info[match.team_b_id]["player_count"] > 0:
             teams_that_played.add(match.team_b_id)
     
-    
+    # Determine if we're in knockout stage
+    total_teams_with_players = len(teams_with_players)
     is_knockout_stage = len(teams_that_played) >= total_teams_with_players and total_teams_with_players > 0
+    
+    # Check for coin toss requirement
+    game = db.query(Game).filter(Game.id == game_id).first()
+    coin_toss_state = None
+    
+    # Check if we need coin toss (from game or based on last match)
+    if hasattr(game, 'coin_toss_state') and game.coin_toss_state:
+        coin_toss_state = game.coin_toss_state
+    elif completed_matches:
+        last_match = completed_matches[0]  # Most recent completed match
+        if (last_match.is_draw and 
+            last_match.team_a_score > 0 and 
+            last_match.team_b_score > 0 and
+            is_knockout_stage):
+            # This was a draw with goals in knockout stage - coin toss needed
+            coin_toss_state = {
+                "pending": True,
+                "team_a_id": last_match.team_a_id,
+                "team_b_id": last_match.team_b_id,
+                "stage": "knockout_stage",
+                "draw_type": "with_goals"
+            }
+    
     
     # Determine upcoming match based on available teams
     upcoming_match = None
@@ -429,7 +452,7 @@ def get_game_state(
             "win_condition": "First to 1 goal" if is_knockout_stage else "2-goal lead (min 2 goals)",
             "match_id": current_match.id
         } if current_match else None,
-        "upcoming_match": upcoming_match,
+        "coin_toss_state": coin_toss_state,
         "completed_matches": [
             {
                 "team_a_id": match.team_a_id,
@@ -445,7 +468,6 @@ def get_game_state(
             }
             for match in completed_matches
         ],
-        "coin_toss_state": getattr(game, 'coin_toss_state', None),
         "teams": [team.id for team in teams_with_players],
         "team_details": team_info,
         "available_teams": available_teams,
@@ -456,6 +478,107 @@ def get_game_state(
         "total_teams_with_players": total_teams_with_players,
         "has_active_match": current_match is not None
     }
+        
+def _create_next_match_after_coin_toss(game_id: str, winner_id: str, loser_id: str, db: Session) -> dict:
+            """Create next match after coin toss - winner gets priority in rotation"""
+            # Get all teams with players (NO elimination - all teams continue playing)
+            all_teams = db.query(GameTeam).filter(GameTeam.game_id == game_id).order_by(GameTeam.team_number).all()
+            
+            teams_with_players = []
+            for team in all_teams:
+                # Count registered players
+                registered_players = db.query(GamePlayer).filter(
+                    and_(GamePlayer.game_id == game_id, GamePlayer.team_id == team.id)
+                ).count()
+                
+                # Count manual participants
+                manual_players = db.query(GameDayParticipant).filter(
+                    and_(GameDayParticipant.game_id == game_id, GameDayParticipant.team == team.team_number)
+                ).count()
+                
+                if registered_players + manual_players > 0:
+                    teams_with_players.append(team)
+            
+            if len(teams_with_players) < 2:
+                return {"message": "Not enough teams with players for next match", "created": False}
+            
+            # Get completed matches to track team usage
+            completed_matches = db.query(Match).filter(
+                and_(
+                    Match.game_id == game_id,
+                    Match.status == MatchStatus.COMPLETED
+                )
+            ).all()
+            
+            # Build team statistics - NO elimination tracking since all teams continue
+            team_stats = {}
+            for team in teams_with_players:
+                team_stats[team.id] = {
+                    "team": team,
+                    "has_played": False,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0
+                }
+            
+            # Track stats for rotation priority (but no elimination)
+            for match in completed_matches:
+                if match.team_a_id in team_stats:
+                    team_stats[match.team_a_id]["has_played"] = True
+                if match.team_b_id in team_stats:
+                    team_stats[match.team_b_id]["has_played"] = True
+                
+                if match.is_draw:
+                    if match.team_a_id in team_stats:
+                        team_stats[match.team_a_id]["draws"] += 1
+                    if match.team_b_id in team_stats:
+                        team_stats[match.team_b_id]["draws"] += 1
+                elif match.winner_id:
+                    if match.winner_id in team_stats:
+                        team_stats[match.winner_id]["wins"] += 1
+                    # Track losses for rotation priority, but don't eliminate
+                    loser_id_match = match.team_a_id if match.winner_id == match.team_b_id else match.team_b_id
+                    if loser_id_match in team_stats:
+                        team_stats[loser_id_match]["losses"] += 1
+            
+            # Winner of coin toss plays next
+            winner_team = team_stats.get(winner_id, {}).get("team")
+            if not winner_team:
+                return {"message": "Winner team not found", "created": False}
+            
+            # Find next opponent (exclude only the two teams that just played, not permanently)
+            exclude_teams = {winner_id, loser_id}
+            available_opponents = _get_next_available_teams_with_players(team_stats, exclude_teams)
+            
+            if not available_opponents:
+                return {"message": "No available opponents", "created": False}
+            
+            next_opponent = available_opponents[0]
+            
+            # Create the next match
+            new_match = Match(
+                id=str(uuid.uuid4()),
+                game_id=game_id,
+                team_a_id=winner_id,
+                team_b_id=next_opponent.id,
+                team_a_score=0,
+                team_b_score=0,
+                status=MatchStatus.SCHEDULED,
+                created_at=datetime.now(timezone.utc)
+            )
+            
+            db.add(new_match)
+            db.flush()
+            
+            return {
+                "match_id": new_match.id,
+                "team_a_id": winner_id,
+                "team_b_id": next_opponent.id,
+                "team_a_name": winner_team.team_name,
+                "team_b_name": next_opponent.team_name,
+                "created": True,
+                "message": f"Next match: {winner_team.team_name} vs {next_opponent.team_name}"
+            }        
         
 def _get_next_teams_for_match(completed_matches, available_teams, team_info, is_knockout_stage):
     """Get the next two teams that should play based on rotation priority"""
@@ -727,6 +850,8 @@ def create_manual_match(
 
 
 # Update the coin toss endpoint to handle the rotation properly
+# Update the coin toss endpoint to call the correct function:
+
 @router.post("/{game_id}/coin-toss")
 def coin_toss(
     game_id: UUID,
@@ -748,103 +873,73 @@ def coin_toss(
         )
     ).first()
     
-    if not membership or membership.role != MemberRole.ADMIN:
+    sport_group = db.query(SportGroup).filter(SportGroup.id == game.sport_group_id).first()
+    is_admin = (membership and membership.role == MemberRole.ADMIN) or sport_group.creator_id == current_user.id
+    
+    if not is_admin:
         raise ForbiddenException("Only admin can perform coin toss")
+    
+    # Validate that both teams made choices
+    team_a_choice = data.get("team_a_choice")
+    team_b_choice = data.get("team_b_choice")
+    
+    if not team_a_choice or not team_b_choice:
+        raise HTTPException(status_code=400, detail="Both teams must choose heads or tails")
+    
+    if team_a_choice == team_b_choice:
+        raise HTTPException(status_code=400, detail="Teams cannot choose the same side")
     
     # Simulate coin toss
     result = random.choice(["heads", "tails"])
-    coin_toss_winner_id = data["team_a_id"] if data["team_a_choice"] == result else data["team_b_id"]
-    coin_toss_loser_id = data["team_b_id"] if data["team_a_choice"] == result else data["team_a_id"]
     
-    # Get team statistics for rotation
-    all_teams = db.query(GameTeam).filter(GameTeam.game_id == str(game_id)).order_by(GameTeam.team_number).all()
-    completed_matches = db.query(Match).filter(
-        and_(
-            Match.game_id == str(game_id),
-            Match.status == MatchStatus.COMPLETED
-        )
-    ).all()
+    # Determine winner and loser
+    if team_a_choice == result:
+        coin_toss_winner_id = data["team_a_id"]
+        coin_toss_loser_id = data["team_b_id"]
+    else:
+        coin_toss_winner_id = data["team_b_id"]
+        coin_toss_loser_id = data["team_a_id"]
     
-    # Build team stats
-    team_stats = {}
-    for team in all_teams:
-        team_stats[team.id] = {
-            "team": team,
-            "has_played": False,
-            "wins": 0,
-            "losses": 0,
-            "draws": 0,
-            "is_currently_playing": False
-        }
-    
-    for match in completed_matches:
-        team_stats[match.team_a_id]["has_played"] = True
-        team_stats[match.team_b_id]["has_played"] = True
-        
-        if match.is_draw:
-            team_stats[match.team_a_id]["draws"] += 1
-            team_stats[match.team_b_id]["draws"] += 1
-        elif match.winner_id == match.team_a_id:
-            team_stats[match.team_a_id]["wins"] += 1
-            team_stats[match.team_b_id]["losses"] += 1
-        elif match.winner_id == match.team_b_id:
-            team_stats[match.team_b_id]["wins"] += 1
-            team_stats[match.team_a_id]["losses"] += 1
-    
-    # Winner of coin toss plays first, get their next opponent
+    # Get team names for response
     winner_team = db.query(GameTeam).filter(GameTeam.id == coin_toss_winner_id).first()
-    exclude_teams = {coin_toss_winner_id, coin_toss_loser_id}  # Exclude both teams from the draw
-    available_opponents = _get_next_available_teams(team_stats, exclude_teams)
+    loser_team = db.query(GameTeam).filter(GameTeam.id == coin_toss_loser_id).first()
     
-    if winner_team and available_opponents:
-        # Create next match with coin toss winner vs next available team
-        new_match = Match(
-            id=str(uuid.uuid4()),
-            game_id=str(game_id),
-            team_a_id=coin_toss_winner_id,
-            team_b_id=available_opponents[0].id,
-            team_a_score=0,
-            team_b_score=0,
-            status=MatchStatus.SCHEDULED,
-            created_at=datetime.now(timezone.utc)
-        )
-        db.add(new_match)
-        
-        # Store coin toss result
-        game.coin_toss_state = {
-            "team_a_id": data["team_a_id"],
-            "team_b_id": data["team_b_id"],
-            "team_a_choice": data["team_a_choice"],
-            "team_b_choice": data["team_b_choice"],
-            "result": result,
-            "winner": coin_toss_winner_id,
-            "loser": coin_toss_loser_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "next_match_created": True
-        }
-        
-        db.commit()
-        
-        return {
-            "result": result,
-            "winner": coin_toss_winner_id,
-            "loser": coin_toss_loser_id,
-            "next_match": {
-                "match_id": new_match.id,
-                "team_a_id": coin_toss_winner_id,
-                "team_b_id": available_opponents[0].id,
-                "team_a_name": winner_team.team_name,
-                "team_b_name": available_opponents[0].team_name
-            }
-        }
+    # FIXED: Call the correct function to create next match after coin toss
+    next_match_result = _create_next_match_after_coin_toss(
+        str(game_id), 
+        coin_toss_winner_id, 
+        coin_toss_loser_id,
+        db
+    )
+    
+    # Store coin toss result in game
+    game.coin_toss_state = {
+        "team_a_id": data["team_a_id"],
+        "team_b_id": data["team_b_id"],
+        "team_a_choice": team_a_choice,
+        "team_b_choice": team_b_choice,
+        "result": result,
+        "winner_id": coin_toss_winner_id,
+        "loser_id": coin_toss_loser_id,
+        "winner_name": winner_team.team_name if winner_team else "Unknown",
+        "loser_name": loser_team.team_name if loser_team else "Unknown",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "pending": False,  # Mark as completed
+        "next_match_created": next_match_result.get("created", False)
+    }
+    
+    db.commit()
     
     return {
         "result": result,
-        "winner": coin_toss_winner_id,
-        "loser": coin_toss_loser_id,
-        "message": "Coin toss completed but no next match created"
+        "winner_id": coin_toss_winner_id,
+        "loser_id": coin_toss_loser_id,
+        "winner_name": winner_team.team_name if winner_team else "Unknown",
+        "loser_name": loser_team.team_name if loser_team else "Unknown",
+        "coin_result": result,
+        "message": f"Coin landed on {result}! {winner_team.team_name if winner_team else 'Winner'} plays next.",
+        "next_match": next_match_result if next_match_result.get("created") else None
     }
-
 @router.post("/{game_id}/referee")
 def assign_referee(
     game_id: UUID,
@@ -1357,20 +1452,23 @@ def _create_next_match_with_rotation(game_id: str, completed_match: Match, winne
 
 def _get_next_available_teams_with_players(team_stats: dict, exclude_teams: set) -> list:
     """
-    Get next available teams that have players based on priority:
+    Get next available teams that have players based on rotation priority:
     1. Teams that have never played (by team number order)
     2. Teams that have lost (by team number order) 
     3. Teams that have drawn (by team number order)
     4. Teams that have won (by team number order)
+    
+    NOTE: In knockout stage, teams are NOT eliminated - they continue in rotation.
+    Knockout stage only changes the win condition to "first to 1 goal".
     """
-    # Separate teams by status
+    # Separate teams by status for rotation priority
     never_played = []
     lost_teams = []
     drawn_teams = []
     won_teams = []
     
     for team_id, stats in team_stats.items():
-        if team_id in exclude_teams or stats["is_currently_playing"]:
+        if team_id in exclude_teams:
             continue
             
         team = stats["team"]
@@ -1378,13 +1476,13 @@ def _get_next_available_teams_with_players(team_stats: dict, exclude_teams: set)
         if not stats["has_played"]:
             never_played.append(team)
         elif stats["losses"] > 0 and stats["wins"] == 0:
-            # Teams that have only lost (no wins)
+            # Teams that have only lost (no wins) - higher priority for next match
             lost_teams.append(team)
         elif stats["draws"] > 0 and stats["wins"] == 0 and stats["losses"] == 0:
             # Teams that have only drawn
             drawn_teams.append(team)
         elif stats["wins"] > 0:
-            # Teams that have won at least once
+            # Teams that have won at least once - lower priority
             won_teams.append(team)
     
     # Sort each category by team number for consistent ordering
@@ -1393,7 +1491,7 @@ def _get_next_available_teams_with_players(team_stats: dict, exclude_teams: set)
     drawn_teams.sort(key=lambda t: t.team_number)
     won_teams.sort(key=lambda t: t.team_number)
     
-    # Return in priority order
+    # Return in rotation priority order (not elimination order)
     return never_played + lost_teams + drawn_teams + won_teams
 
 # Update the match end handler to properly detect draws that need coin toss
@@ -1495,12 +1593,12 @@ def end_current_match(
         # Store coin toss state for frontend to handle
         coin_toss_purpose = ""
         if current_match.team_a_score == 0 and current_match.team_b_score == 0:
-            if is_knockout_stage:
-                coin_toss_purpose = "Both teams eliminated - coin toss to determine who plays next in knockout"
-            else:
-                coin_toss_purpose = "Both teams eliminated - coin toss to determine who plays first between them in knockout stage"
+            coin_toss_purpose = "0-0 draw - coin toss to determine who plays first in next rotation"
         else:
-            coin_toss_purpose = "Draw with goals - coin toss to determine who plays first in next rotation"
+            if is_knockout_stage:
+                coin_toss_purpose = "Draw with goals in knockout stage - coin toss to determine who plays first in next rotation"
+            else:
+                coin_toss_purpose = "Draw with goals - coin toss to determine who plays first in next rotation"
         
         game.coin_toss_state = {
             "pending": True,
@@ -1510,7 +1608,7 @@ def end_current_match(
             "stage": "knockout_stage" if is_knockout_stage else "first_rotation",
             "draw_type": "0-0" if (current_match.team_a_score == 0 and current_match.team_b_score == 0) else "with_goals",
             "purpose": coin_toss_purpose
-        }
+       }
         
         team_a = db.query(GameTeam).filter(GameTeam.id == current_match.team_a_id).first()
         team_b = db.query(GameTeam).filter(GameTeam.id == current_match.team_b_id).first()
@@ -1527,16 +1625,7 @@ def end_current_match(
             }
     else:
         # Create next match based on outcome
-        if is_knockout_stage and current_match.is_draw and current_match.team_a_score > 0:
-            # Both teams eliminated in knockout stage (draw with goals - shouldn't happen but handle it)
-            next_match_info = _create_next_match_with_rotation(
-                game_id_str, 
-                current_match, 
-                None,  # No winner - both eliminated
-                None,  # No specific loser
-                db
-            )
-        else:
+
             # Normal winner/loser scenario
             next_match_info = _create_next_match_with_rotation(
                 game_id_str, 
@@ -1547,15 +1636,15 @@ def end_current_match(
             )    
     db.commit()
     
-    stage_info = "Knockout Stage" if is_knockout_stage else "First Rotation"
+    stage_info = "Knockout Stage (First to 1 goal)" if is_knockout_stage else "First Rotation (2-goal lead/minimum)"
     draw_info = ""
     if current_match.is_draw:
         if current_match.team_a_score == 0 and current_match.team_b_score == 0:
-            draw_info = " - 0-0 draw: Both teams eliminated, coin toss required"
+            draw_info = " - 0-0 draw: Coin toss for next rotation priority"
         elif is_knockout_stage:
-            draw_info = " - Draw with goals in knockout: Both teams eliminated"
+            draw_info = " - Draw with goals: Coin toss for next rotation priority"
         else:
-            draw_info = " - Draw with goals: Coin toss required"
+            draw_info = " - Draw with goals: Coin toss for next rotation priority"
     
     return {
         "message": "Match ended",

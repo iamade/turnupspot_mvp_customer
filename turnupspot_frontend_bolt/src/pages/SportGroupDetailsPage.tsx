@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { get, post } from "../api";
+import { get, post, del } from "../api";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "react-toastify";
 import {
@@ -44,6 +44,7 @@ const SportGroupDetailsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -113,14 +114,17 @@ const SportGroupDetailsPage: React.FC = () => {
       )
     )
       return;
+    setDeleting(true);
     try {
-      await post(`/sport-groups/${id}`, {}, { method: "DELETE" });
+      await del(`/sport-groups/${id}`);
       toast.success("Group deleted successfully!");
       navigate("/sports/groups");
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to delete group";
       toast.error(errorMessage);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -215,15 +219,15 @@ const SportGroupDetailsPage: React.FC = () => {
                       {leaving ? "Leaving..." : "Leave Group"}
                     </button>
                   )}
-                  {group.current_user_membership.role !== "admin" &&
-                    group.current_user_membership.is_creator && (
-                      <button
-                        onClick={handleDeleteGroup}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2"
-                      >
-                        Delete Group
-                      </button>
-                    )}
+                  {group.current_user_membership.is_creator && (
+                    <button
+                      onClick={handleDeleteGroup}
+                      disabled={deleting}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {deleting ? "Deleting..." : "Delete Group"}
+                    </button>
+                  )}
                 </>
               ) : group?.current_user_membership?.is_pending ? (
                 <button

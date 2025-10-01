@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { get, post } from "../api";
+import { get } from "../api";
 import { useAuth } from "../contexts/AuthContext";
-import { toast } from "react-toastify";
 import {
   Users,
   Calendar,
@@ -60,28 +59,6 @@ const MySportGroupDetailsPage: React.FC = () => {
       .finally(() => setLoading(false));
   }, [id, token]);
 
-  const handleDeleteGroup = async () => {
-    if (!id) return;
-    if (
-      !window.confirm(
-        "Are you sure you want to delete this group? This action cannot be undone."
-      )
-    )
-      return;
-    try {
-      await post(
-        `/sport-groups/${id}`,
-        {},
-        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
-      );
-      toast.success("Group deleted successfully!");
-      navigate("/my-sports-groups");
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to delete group";
-      toast.error(errorMessage);
-    }
-  };
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
@@ -203,7 +180,6 @@ const MySportGroupDetailsPage: React.FC = () => {
                 </button>
               )}
             </div>
-            <div className="space-x-4">{/* No Delete Group button here */}</div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">

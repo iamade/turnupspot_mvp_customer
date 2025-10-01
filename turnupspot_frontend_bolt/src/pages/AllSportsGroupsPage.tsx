@@ -59,7 +59,6 @@ const AllSportsGroupsPage: React.FC = () => {
   const { token } = useAuth();
   const navigate = useNavigate();
   const [groups, setGroups] = useState<SportGroup[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,7 +66,6 @@ const AllSportsGroupsPage: React.FC = () => {
   }, [token]);
 
   const fetchAllGroups = async () => {
-    setLoading(true);
     try {
       const response = await get<SportGroup[]>(
         "/sport-groups",
@@ -78,8 +76,6 @@ const AllSportsGroupsPage: React.FC = () => {
       console.error("Error fetching sport groups:", error);
       setError("Failed to load sport groups.");
       toast.error("Failed to load sport groups.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -121,7 +117,7 @@ const AllSportsGroupsPage: React.FC = () => {
     return null;
   };
 
-  const renderMembershipButton = (group: SportGroup, e: React.MouseEvent) => {
+  const renderMembershipButton = (group: SportGroup) => {
     const status = getMembershipStatus(group);
     
     if (status === "member") {
@@ -147,17 +143,6 @@ const AllSportsGroupsPage: React.FC = () => {
       );
     }
   };
-
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading sport groups...</p>
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -234,7 +219,7 @@ const AllSportsGroupsPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="absolute top-3 right-3">
-                  {renderMembershipButton(group, {} as React.MouseEvent)}
+                  {renderMembershipButton(group)}
                 </div>
               </div>
               

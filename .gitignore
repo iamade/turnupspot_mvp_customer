@@ -2,3 +2,5 @@ node_modules/
 .env
 MYCODEFU.md
 .DS_Store
+**/.DS_Store
+*/.DS_Store

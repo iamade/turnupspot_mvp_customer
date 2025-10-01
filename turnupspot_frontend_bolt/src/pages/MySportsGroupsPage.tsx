@@ -71,7 +71,6 @@ const MySportsGroupsPage: React.FC = () => {
   const { token } = useAuth();
   const navigate = useNavigate();
   const [groups, setGroups] = useState<SportGroup[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -80,13 +79,11 @@ const MySportsGroupsPage: React.FC = () => {
       navigate("/signin");
       return;
     }
-    setLoading(true);
     get<SportGroup[]>("/sport-groups/my", {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => setGroups(res.data))
-      .catch(() => setError("Failed to load your sport groups."))
-      .finally(() => setLoading(false));
+      .catch(() => setError("Failed to load your sport groups."));
   }, [token, navigate]);
 
   const handleLeave = async (id: string) => {
@@ -99,7 +96,7 @@ const MySportsGroupsPage: React.FC = () => {
       );
       setGroups((prev) => prev.filter((g) => g.id !== id));
       toast.success("Left group successfully!");
-    } catch (e) {
+    } catch {
       toast.error("Failed to leave group.");
     } finally {
       setDeletingId(null);
@@ -119,9 +116,8 @@ const MySportsGroupsPage: React.FC = () => {
           Create Group
         </button>
       </div>
-      {loading && <div className="text-center">Loading...</div>}
       {error && <div className="text-center text-red-500">{error}</div>}
-      {!loading && !error && groups.length === 0 && (
+      {groups.length === 0 && !error && (
         <div className="text-center text-gray-500 text-lg mt-16">
           You have not joined or created any sport groups yet.
         </div>

@@ -9,12 +9,15 @@ import os
 from datetime import datetime
 from sqlalchemy.orm import Session, selectinload
 from uuid import uuid4
+import logging
 
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_optional_current_user
 from app.models.user import User
-from app.models.sport_group import SportGroup, SportGroupMember, MemberRole, SportsType, PlayingDay, Day
-from app.models.chat import ChatRoom, ChatRoomType
+from app.models.sport_group import SportGroup, SportGroupMember, MemberRole, SportsType, PlayingDay, Day, Team, TeamMember
+from app.models.chat import ChatRoom, ChatRoomType, ChatMessage
+from app.models.game import Game, GameTeam, GamePlayer, Match
+from app.models.manual_checkin import GameDayParticipant
 from app.schemas.sport_group import (
     SportGroupCreate, SportGroupUpdate, SportGroupResponse, 
     SportGroupJoinRequest, SportGroupMemberResponse
@@ -331,23 +334,129 @@ def delete_sport_group(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a sport group"""
+    """Delete a sport group and all related records"""
+    logger = logging.getLogger(__name__)
+
     db_sport_group = db.query(SportGroup).filter(SportGroup.id == sport_group_id).first()
     if not db_sport_group:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sport group not found"
         )
-    
+
     if db_sport_group.created_by != current_user.email:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this sport group"
         )
-    
-    db.delete(db_sport_group)
-    db.commit()
-    
+
+    try:
+        logger.info(f"Starting deletion of sport group {sport_group_id}")
+
+        # Check what related records exist before deletion
+        members_count = db.query(SportGroupMember).filter(SportGroupMember.sport_group_id == sport_group_id).count()
+        games_count = db.query(Game).filter(Game.sport_group_id == sport_group_id).count()
+        teams_count = db.query(Team).filter(Team.sport_group_id == sport_group_id).count()
+        chat_rooms_count = db.query(ChatRoom).filter(ChatRoom.sport_group_id == sport_group_id).count()
+        chat_messages_count = db.query(ChatMessage).filter(ChatMessage.chat_room_id.in_(
+            db.query(ChatRoom.id).filter(ChatRoom.sport_group_id == sport_group_id)
+        )).count()
+        game_teams_count = db.query(GameTeam).filter(GameTeam.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).count()
+        game_players_count = db.query(GamePlayer).filter(GamePlayer.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).count()
+        matches_count = db.query(Match).filter(Match.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).count()
+        team_members_count = db.query(TeamMember).filter(TeamMember.team_id.in_(
+            db.query(Team.id).filter(Team.sport_group_id == sport_group_id)
+        )).count()
+        game_day_participants_count = db.query(GameDayParticipant).filter(GameDayParticipant.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).count()
+        logger.info(f"Before deletion: {members_count} members, {games_count} games, {teams_count} teams, {chat_rooms_count} chat rooms, {chat_messages_count} chat messages, {game_teams_count} game teams, {game_players_count} game players, {matches_count} matches, {team_members_count} team members, {game_day_participants_count} game day participants")
+
+        # Delete in correct order to avoid foreign key violations
+
+        # 1. Delete chat messages first
+        chat_messages_deleted = db.query(ChatMessage).filter(ChatMessage.chat_room_id.in_(
+            db.query(ChatRoom.id).filter(ChatRoom.sport_group_id == sport_group_id)
+        )).delete(synchronize_session=False)
+        logger.info(f"Deleted {chat_messages_deleted} chat messages")
+
+        # 2. Delete chat rooms
+        chat_rooms_deleted = db.query(ChatRoom).filter(
+            ChatRoom.sport_group_id == sport_group_id
+        ).delete()
+        logger.info(f"Deleted {chat_rooms_deleted} chat rooms")
+
+        # 3. Delete matches first (they reference game_teams)
+        matches_deleted = db.query(Match).filter(Match.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).delete(synchronize_session=False)
+        logger.info(f"Deleted {matches_deleted} matches")
+
+        # 4. Delete game players
+        game_players_deleted = db.query(GamePlayer).filter(GamePlayer.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).delete(synchronize_session=False)
+        logger.info(f"Deleted {game_players_deleted} game players")
+
+        # 5. Delete game teams
+        game_teams_deleted = db.query(GameTeam).filter(GameTeam.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).delete(synchronize_session=False)
+        logger.info(f"Deleted {game_teams_deleted} game teams")
+
+        # 6. Delete game day participants
+        game_day_participants_deleted = db.query(GameDayParticipant).filter(GameDayParticipant.game_id.in_(
+            db.query(Game.id).filter(Game.sport_group_id == sport_group_id)
+        )).delete(synchronize_session=False)
+        logger.info(f"Deleted {game_day_participants_deleted} game day participants")
+
+        # 7. Delete games
+        games_deleted = db.query(Game).filter(
+            Game.sport_group_id == sport_group_id
+        ).delete()
+        logger.info(f"Deleted {games_deleted} games")
+
+        # 7. Delete team members
+        team_members_deleted = db.query(TeamMember).filter(TeamMember.team_id.in_(
+            db.query(Team.id).filter(Team.sport_group_id == sport_group_id)
+        )).delete(synchronize_session=False)
+        logger.info(f"Deleted {team_members_deleted} team members")
+
+        # 8. Delete teams
+        teams_deleted = db.query(Team).filter(
+            Team.sport_group_id == sport_group_id
+        ).delete()
+        logger.info(f"Deleted {teams_deleted} teams")
+
+        # 9. Delete sport group members
+        members_deleted = db.query(SportGroupMember).filter(
+            SportGroupMember.sport_group_id == sport_group_id
+        ).delete()
+        logger.info(f"Deleted {members_deleted} sport group members")
+
+        # Finally delete the sport group (playing days will be deleted via cascade)
+        db.delete(db_sport_group)
+        logger.info(f"Deleted sport group {sport_group_id}")
+
+        db.commit()
+
+    except Exception as e:
+        logger.error(f"Error deleting sport group {sport_group_id}: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete sport group: {str(e)}"
+        )
+
     return None
 
 

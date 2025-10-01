@@ -2,6 +2,19 @@ import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import type { InternalAxiosRequestConfig } from "axios";
 import { toast } from "react-toastify";
 
+// Loading state management for API calls
+let loadingCallbacks: {
+  startLoading: () => void;
+  stopLoading: () => void;
+} | null = null;
+
+export const setLoadingCallbacks = (callbacks: {
+  startLoading: () => void;
+  stopLoading: () => void;
+}) => {
+  loadingCallbacks = callbacks;
+};
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1",
   headers: {
@@ -15,13 +28,29 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // Start loading for API requests
+  if (loadingCallbacks) {
+    loadingCallbacks.startLoading();
+  }
+
   return config;
 });
 
 // Add response interceptor to handle errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Stop loading for successful responses
+    if (loadingCallbacks) {
+      loadingCallbacks.stopLoading();
+    }
+    return response;
+  },
   (error) => {
+    // Stop loading for error responses
+    if (loadingCallbacks) {
+      loadingCallbacks.stopLoading();
+    }
     // Extract error message from response
     let errorMessage = "An unexpected error occurred";
     
@@ -46,7 +75,7 @@ api.interceptors.response.use(
 
     // Re-throw with the extracted message
     const enhancedError = new Error(errorMessage);
-    (enhancedError as any).response = error.response;
+    (enhancedError as Error & { response?: unknown }).response = error.response;
     return Promise.reject(enhancedError);
   }
 );

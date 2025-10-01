@@ -27,16 +27,40 @@ import MyGroupMembersPage from "./pages/MyGroupMembersPage";
 import MyGroupJoinPage from "./pages/MyGroupJoinPage";
 import ActivateAccountPage from "./pages/ActivateAccountPage";
 import { AuthProvider } from "./contexts/AuthContext";
+import { LoadingProvider, useLoading } from "./contexts/LoadingContext";
+import LoadingSpinner from "./components/ui/LoadingSpinner";
+import { setLoadingCallbacks } from "./api";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+
+const GlobalLoadingSpinner: React.FC = () => {
+  const { isLoading } = useLoading();
+
+  if (!isLoading) return null;
+
+  return <LoadingSpinner overlay size="lg" message="Loading..." />;
+};
+
+const LoadingCallbackSetter: React.FC = () => {
+  const { startLoading, stopLoading } = useLoading();
+
+  React.useEffect(() => {
+    setLoadingCallbacks({ startLoading, stopLoading });
+  }, [startLoading, stopLoading]);
+
+  return null;
+};
 
 function App() {
   return (
     <Router>
-      <ToastContainer position="top-right" autoClose={4000} />
-      <AuthProvider>
-        <MainLayout>
-          <Routes>
+      <LoadingProvider>
+        <ToastContainer position="top-right" autoClose={4000} />
+        <AuthProvider>
+          <LoadingCallbackSetter />
+          <GlobalLoadingSpinner />
+          <MainLayout>
+            <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/home" element={<Home />} />
             <Route path="/sports" element={<SportsPage />} />
@@ -97,8 +121,9 @@ function App() {
           </Routes>
         </MainLayout>
       </AuthProvider>
-    </Router>
-  );
+    </LoadingProvider>
+  </Router>
+);
 }
 
 export default App;

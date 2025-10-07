@@ -294,7 +294,7 @@ def get_game_state(
 
                 # For draws, set up coin toss
                 current_match.requires_coin_toss = True
-                current_match.coin_toss_type = CoinTossType.DRAW_DECIDER  # Use DRAW_DECIDER for all draws to trigger next match creation
+                current_match.coin_toss_type = CoinTossType.draw_decider  # Use DRAW_DECIDER for all draws to trigger next match creation
 
                 # Set coin toss state for the game
                 game.coin_toss_state = {
@@ -455,7 +455,7 @@ def get_game_state(
                 "team_b_id": scheduled_match_requiring_toss.team_b_id,
                 "match_id": scheduled_match_requiring_toss.id,
                 "coin_toss_type": scheduled_match_requiring_toss.coin_toss_type if scheduled_match_requiring_toss.coin_toss_type else "draw_decider",
-                "reason": "rematch_after_draw" if scheduled_match_requiring_toss.coin_toss_type == CoinTossType.DRAW_DECIDER else "starting_team"
+                "reason": "rematch_after_draw" if scheduled_match_requiring_toss.coin_toss_type == CoinTossType.draw_decider else "starting_team"
             }
     
     
@@ -1573,7 +1573,7 @@ def _create_next_match_with_rotation(game_id: str, completed_match: Match, winne
             team_b_score=0,
             status=MatchStatus.SCHEDULED,
             requires_coin_toss=requires_coin_toss,
-            coin_toss_type=CoinTossType.DRAW_DECIDER if requires_coin_toss else None,
+            coin_toss_type=CoinTossType.draw_decider if requires_coin_toss else None,
             created_at=datetime.now(timezone.utc)
         )
         db.add(new_match)
@@ -1745,7 +1745,7 @@ def end_current_match(
             # This is a rematch between teams that previously drew - coin toss required
             requires_coin_toss = True
             current_match.requires_coin_toss = True
-            current_match.coin_toss_type = CoinTossType.DRAW_DECIDER.value
+            current_match.coin_toss_type = CoinTossType.draw_decider.value
         elif current_match.team_a_score == 0 and current_match.team_b_score == 0:
             # 0-0 draw: Coin toss required to determine play order
             requires_coin_toss = True
@@ -1755,7 +1755,7 @@ def end_current_match(
             # Draw with goals in first rotation: Coin toss required
             requires_coin_toss = True
             current_match.requires_coin_toss = True
-            current_match.coin_toss_type = CoinTossType.DRAW_DECIDER.value
+            current_match.coin_toss_type = CoinTossType.draw_decider.value
         # Note: In knockout stage, draws with goals shouldn't happen (first to 1 goal)
         # but if they do, no coin toss needed as both teams continue in rotation
     

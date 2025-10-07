@@ -7,16 +7,16 @@ import enum
 
 # Define the CoinTossType enum locally to avoid dependency issues
 class CoinTossType(str, enum.Enum):
-    DRAW_DECIDER = "draw_decider"
+    draw_decider = "draw_decider"
     STARTING_TEAM = "starting_team"
 
 def test_coin_toss_enum_values():
     """Test that CoinTossType enum values are lowercase strings"""
     print("Testing CoinTossType enum serialization...")
     
-    # Test DRAW_DECIDER
-    draw_decider_value = CoinTossType.DRAW_DECIDER.value
-    print(f"DRAW_DECIDER value: {draw_decider_value}")
+    # Test draw_decider
+    draw_decider_value = CoinTossType.draw_decider.value
+    print(f"draw_decider value: {draw_decider_value}")
     assert draw_decider_value == "draw_decider", f"Expected 'draw_decider', got '{draw_decider_value}'"
     assert isinstance(draw_decider_value, str), f"Expected string, got {type(draw_decider_value)}"
     
@@ -33,7 +33,7 @@ def test_enum_database_serialization():
     print("\nTesting enum serialization for database...")
     
     # Test that the values are appropriate for database storage
-    draw_decider_db_value = CoinTossType.DRAW_DECIDER.value
+    draw_decider_db_value = CoinTossType.draw_decider.value
     starting_team_db_value = CoinTossType.STARTING_TEAM.value
     
     # Verify values are lowercase and database-friendly
@@ -54,7 +54,7 @@ def check_games_py_enum_usage():
         
         # Check for proper .value usage
         expected_patterns = [
-            'CoinTossType.DRAW_DECIDER.value',
+            'CoinTossType.draw_decider.value',
             'CoinTossType.STARTING_TEAM.value'
         ]
         

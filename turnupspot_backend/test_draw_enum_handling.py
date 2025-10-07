@@ -85,7 +85,7 @@ def test_draw_enum_handling():
         assert mock_match.requires_coin_toss == True, f"Expected requires_coin_toss=True, got {mock_match.requires_coin_toss}"
 
         # Verify that coin_toss_type was set to DRAW_DECIDER
-        assert mock_match.coin_toss_type == CoinTossType.DRAW_DECIDER, f"Expected coin_toss_type=DRAW_DECIDER, got {mock_match.coin_toss_type}"
+        assert mock_match.coin_toss_type == CoinTossType.draw_decider, f"Expected coin_toss_type=DRAW_DECIDER, got {mock_match.coin_toss_type}"
 
         # Verify the enum value is correct
         assert mock_match.coin_toss_type.value == "draw_decider", f"Expected enum value 'draw_decider', got '{mock_match.coin_toss_type.value}'"
@@ -115,7 +115,7 @@ def test_enum_serialization():
     print("\nTesting enum serialization...")
 
     # Test DRAW_DECIDER
-    draw_decider = CoinTossType.DRAW_DECIDER
+    draw_decider = CoinTossType.draw_decider
     assert str(draw_decider) == "draw_decider", f"Expected 'draw_decider', got '{str(draw_decider)}'"
     assert draw_decider.value == "draw_decider", f"Expected value 'draw_decider', got '{draw_decider.value}'"
 

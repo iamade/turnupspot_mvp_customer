@@ -16,7 +16,7 @@ def test_enum_values():
     print("Testing CoinTossType enum values...")
 
     # Test DRAW_DECIDER
-    draw_decider_value = CoinTossType.DRAW_DECIDER.value
+    draw_decider_value = CoinTossType.draw_decider.value
     print(f"DRAW_DECIDER value: {draw_decider_value}")
     assert draw_decider_value == "draw_decider", f"Expected 'draw_decider', got '{draw_decider_value}'"
     assert isinstance(draw_decider_value, str), f"Expected string, got {type(draw_decider_value)}"
@@ -35,7 +35,7 @@ def test_enum_consistency():
 
     # These should match the frontend enum values
     expected_values = {
-        "DRAW_DECIDER": "draw_decider",
+        "draw_decider": "draw_decider",
         "STARTING_TEAM": "starting_team"
     }
 

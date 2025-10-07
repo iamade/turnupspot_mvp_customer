@@ -34,7 +34,7 @@ class MatchStatus(enum.Enum):
 
 
 class CoinTossType(str, enum.Enum):
-    DRAW_DECIDER = "draw_decider"
+    draw_decider = "draw_decider"
     STARTING_TEAM = "starting_team"
 
 

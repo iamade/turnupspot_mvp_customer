@@ -6,7 +6,7 @@ export interface Sport {
   min_teams?: number;
   players_per_match?: number;
   requires_referee: boolean;
-  rules?: any;
+  rules?: Record<string, unknown>;
   is_default: boolean;
   created_by?: number;
   created_at: string;
@@ -62,4 +62,68 @@ export interface TeamStats {
   goalsScored: number;
   goalsConceded: number;
   points: number;
+}
+
+export interface AvailableTeam {
+  id: string;
+  name: string;
+  team_number: number;
+  captain_id?: number;
+  player_count?: number;
+}
+
+export enum CoinTossType {
+  DRAW_DECIDER = "draw_decider",
+  STARTING_TEAM = "starting_team",
+}
+
+export interface Match {
+  id?: string;
+  team_a_id: string;
+  team_b_id: string;
+  team_a_name?: string;
+  team_b_name?: string;
+  team_a_score?: number;
+  team_b_score?: number;
+  winner_id?: string;
+  is_draw?: boolean;
+  referee_id?: number;
+  completed_at?: string;
+  started_at?: string;
+  requires_coin_toss?: boolean;
+  coin_toss_type?: CoinTossType;
+  coin_toss_winner_id?: string;
+  coin_toss_performed_at?: string;
+}
+
+export interface Game {
+  id: string;
+  sport_group_id: string;
+  date: string;
+  status: "scheduled" | "in-progress" | "completed";
+  matches: Match[];
+  current_match?: Match;
+  upcoming_match?: {
+    team_a_id: string;
+    team_b_id: string;
+    team_a_name: string;
+    team_b_name: string;
+    requires_coin_toss?: boolean;
+    coin_toss_type?: CoinTossType;
+    is_knockout_stage?: boolean;
+  };
+  coin_toss_state?: {
+    pending?: boolean;
+    team_a_id?: string;
+    team_b_id?: string;
+    coin_toss_type?: CoinTossType;
+    result?: string;
+    winner?: string;
+    loser?: string;
+  };
+  referee: number | null;
+  teams: Team[];
+  available_teams: AvailableTeam[];
+  can_control_match: boolean;
+  is_knockout_stage?: boolean;
 }

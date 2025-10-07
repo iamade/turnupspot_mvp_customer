@@ -102,4 +102,56 @@ export const del = <T = unknown>(
   config?: AxiosRequestConfig
 ): Promise<AxiosResponse<T>> => api.delete<T>(url, config);
 
+// Game and Match API functions
+export const gameAPI = {
+  // Get game state
+  getGameState: (gameId: string) =>
+    get(`/games/${gameId}/state`),
+
+  // Get game day info
+  getGameDayInfo: (sportGroupId: string) =>
+    get(`/games/game-day/${sportGroupId}`),
+
+  // Start match
+  startMatch: (gameId: string, data: { team_a_id: string; team_b_id: string }) =>
+    post(`/games/${gameId}/start-match`, data),
+
+  // End match
+  endMatch: (gameId: string) =>
+    post(`/games/${gameId}/match/end`),
+
+  // Update match score
+  updateScore: (gameId: string, data: { team_id: string; action: "increment" | "decrement" | "set"; value?: number }) =>
+    post(`/games/${gameId}/match/score`, data),
+
+  // Start scheduled match
+  startScheduledMatch: (gameId: string) =>
+    post(`/games/${gameId}/match/start-scheduled`),
+
+  // Timer controls
+  startTimer: (gameId: string) =>
+    post(`/games/${gameId}/timer/start`),
+
+  getTimerStatus: (gameId: string) =>
+    get(`/games/${gameId}/timer`),
+
+  // Coin toss functions
+  performCoinToss: (gameId: string, data: {
+    team_a_id: string;
+    team_b_id: string;
+    team_a_choice: string;
+    team_b_choice: string;
+    coin_toss_type?: string;
+  }) =>
+    post(`/games/${gameId}/coin-toss`, data),
+
+  // Get suggested teams
+  getSuggestedTeams: (gameId: string) =>
+    get(`/games/${gameId}/suggested-teams`),
+
+  // Get teams for game
+  getGameTeams: (gameId: string) =>
+    get<{ teams: unknown[] }>(`/games/${gameId}/teams`),
+};
+
 export default api;

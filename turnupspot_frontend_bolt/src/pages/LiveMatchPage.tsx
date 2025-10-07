@@ -10,11 +10,13 @@ import {
   Users,
   Crown,
   AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { Howl } from "howler";
 import { useAuth } from "../contexts/AuthContext";
-import { get, post } from "../api";
+import { gameAPI } from "../api";
 import { toast } from "react-toastify";
+import type { CoinTossType, Match as MatchType, Game } from "../types";
 
 interface SuggestedTeamsResponse {
   suggested_teams: AvailableTeam[];
@@ -158,13 +160,11 @@ const LiveMatchPage: React.FC = () => {
 
   // Add this function to fetch game day info:
   const fetchGameDayInfo = async () => {
-    if (!id || !token) return;
+    if (!id) return;
 
     try {
-      const response = await get<GameDayInfo>(`/games/game-day/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setGameDayInfo(response.data);
+      const response = await gameAPI.getGameDayInfo(id);
+      setGameDayInfo(response.data as GameDayInfo);
     } catch (error) {
       console.error("Error fetching game day info:", error);
     }
@@ -184,14 +184,17 @@ const LiveMatchPage: React.FC = () => {
 
   // Fetch timer status from server
   const fetchTimerStatus = async () => {
-    if (!gameId || !token) return;
+    if (!gameId) return;
 
     try {
-      const response = await get(`/games/${gameId}/timer`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await gameAPI.getTimerStatus(gameId);
 
-      const { is_running, remaining_seconds, timer_expired } = response.data;
+      const { is_running, remaining_seconds, timer_expired } =
+        response.data as {
+          is_running: boolean;
+          remaining_seconds: number;
+          timer_expired: boolean;
+        };
 
       setTimeRemaining(remaining_seconds);
       setIsTimerRunning(is_running && !timer_expired);
@@ -223,21 +226,17 @@ const LiveMatchPage: React.FC = () => {
 
   // Add function to fetch suggested teams:
   const fetchSuggestedTeams = async () => {
-    if (!gameId || !token) return;
+    if (!gameId) return;
 
     try {
-      const response = await get<SuggestedTeamsResponse>(
-        `/games/${gameId}/suggested-teams`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await gameAPI.getSuggestedTeams(gameId);
 
+      const data = response.data as SuggestedTeamsResponse;
       setSuggestedTeams({
-        team_a: response.data.team_a,
-        team_b: response.data.team_b,
-        reason: response.data.reason,
-        is_knockout_stage: response.data.is_knockout_stage,
+        team_a: data.team_a,
+        team_b: data.team_b,
+        reason: data.reason,
+        is_knockout_stage: data.is_knockout_stage,
       });
     } catch (error) {
       console.error("Error fetching suggested teams:", error);
@@ -262,16 +261,10 @@ const LiveMatchPage: React.FC = () => {
 
   // Start match timer
   const handleStartTimer = async () => {
-    if (!gameId || !token || !canControlMatch) return;
+    if (!gameId || !canControlMatch) return;
 
     try {
-      await post(
-        `/games/${gameId}/timer/start`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      await gameAPI.startTimer(gameId);
 
       // Play whistle sound
       whistleSound.play();
@@ -307,18 +300,20 @@ const LiveMatchPage: React.FC = () => {
 
   // Add function to handle match ending
   const handleEndMatch = async () => {
-    if (!gameId || !token) return;
+    if (!gameId) return;
 
     try {
-      const response = await post(
-        `/games/${gameId}/match/end`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await gameAPI.endMatch(gameId);
 
-      const { match_result, next_match } = response.data;
+      const { match_result } = response.data as {
+        match_result: {
+          is_draw?: boolean;
+          team_a_score?: number;
+          team_b_score?: number;
+          winner_id?: string;
+        };
+        next_match?: unknown;
+      };
 
       if (
         match_result.is_draw &&
@@ -428,14 +423,13 @@ const LiveMatchPage: React.FC = () => {
   };
 
   const fetchGameState = async () => {
-    if (!id || !token) return;
+    if (!id) return;
 
     try {
       // Get the game day info to get the actual game ID
-      const gameDayResponse = await get<GameDayInfo>(`/games/game-day/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const actualGameId = gameDayResponse.data.current_game_id;
+      const gameDayResponse = await gameAPI.getGameDayInfo(id);
+      const actualGameId = (gameDayResponse.data as GameDayInfo)
+        .current_game_id;
 
       if (!actualGameId) {
         throw new Error("No active game found for today");
@@ -445,43 +439,40 @@ const LiveMatchPage: React.FC = () => {
       setGameId(actualGameId);
 
       // Get the game state with team details
-      const response = await get<GameState>(`/games/${actualGameId}/state`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setGameState(response.data);
+      const response = await gameAPI.getGameState(actualGameId);
+      setGameState(response.data as GameState);
 
       // Check if coin toss is required immediately after fetching state
-      if (response.data.coin_toss_state?.pending && !coinTossMode) {
+      if (
+        (response.data as GameState).coin_toss_state?.pending &&
+        !coinTossMode
+      ) {
         // Force UI update to show coin toss section
         setCoinTossMode(false);
         toast.info("Coin toss required to determine next match!");
       }
 
       // Filter available teams to only show teams with players
-      const teamsWithPlayers = (response.data.available_teams || []).filter(
-        (team) => {
-          return team.player_count && team.player_count > 0;
-        }
-      );
+      const teamsWithPlayers = (
+        (response.data as GameState).available_teams || []
+      ).filter((team: AvailableTeam) => {
+        return team.player_count && team.player_count > 0;
+      });
 
       // Set available teams from the game state
       setAvailableTeams(teamsWithPlayers);
 
       // Try to fetch teams data
       try {
-        const teamsResponse = await get<{ teams: Team[] }>(
-          `/games/${actualGameId}/teams`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-        setTeams(teamsResponse.data.teams || []);
+        const teamsResponse = await gameAPI.getGameTeams(actualGameId);
+        setTeams((teamsResponse.data as { teams: Team[] }).teams || []);
       } catch (teamError) {
         console.warn("Could not fetch teams data:", teamError);
         // Use team details from game state as fallback
-        if (response.data.team_details) {
-          const teamArray = Object.values(response.data.team_details).map(
-            (team) => ({
+        const gameStateData = response.data as GameState;
+        if (gameStateData.team_details) {
+          const teamArray = Object.values(gameStateData.team_details).map(
+            (team: any) => ({
               id: team.id,
               name: team.name,
               team_number: team.team_number,
@@ -541,27 +532,22 @@ const LiveMatchPage: React.FC = () => {
 
   // Start match
   const handleStartMatch = async (teamAId: string, teamBId: string) => {
-    if (!gameId || !token || !canControlMatch) return;
+    if (!gameId || !canControlMatch) return;
 
     setSubmitting(true);
     try {
       whistleSound.play();
 
       // Use the existing start-match endpoint which should handle timer
-      await post(
-        `/games/${gameId}/start-match`,
-        { team_a_id: teamAId, team_b_id: teamBId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await gameAPI.startMatch(gameId, {
+        team_a_id: teamAId,
+        team_b_id: teamBId,
+      });
 
       toast.success("Match started!");
 
       // Then start the timer separately if needed
-      await post(
-        `/games/${gameId}/timer/start`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await gameAPI.startTimer(gameId);
 
       await fetchGameState();
     } catch (error) {
@@ -578,23 +564,27 @@ const LiveMatchPage: React.FC = () => {
     action: "increment" | "decrement" | "set",
     value?: number
   ) => {
-    if (!gameId || !token || !canControlMatch) return;
+    if (!gameId || !canControlMatch) return;
 
     setSubmitting(true);
     try {
-      const response = await post(
-        `/games/${gameId}/match/score`,
-        { team_id: teamId, action, value },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await gameAPI.updateScore(gameId, {
+        team_id: teamId,
+        action,
+        value,
+      });
 
-      if (response.data.match_ended) {
-        if (response.data.next_match?.requires_coin_toss) {
+      const data = response.data as {
+        match_ended?: boolean;
+        next_match?: { requires_coin_toss?: boolean };
+        winner_id?: string;
+      };
+
+      if (data.match_ended) {
+        if (data.next_match?.requires_coin_toss) {
           toast.info("Match ended in a draw - coin toss required!");
-        } else if (response.data.winner_id) {
-          const winnerName = getTeamName(response.data.winner_id);
+        } else if (data.winner_id) {
+          const winnerName = getTeamName(data.winner_id);
           toast.success(`${winnerName} wins and advances!`);
         }
 
@@ -621,16 +611,10 @@ const LiveMatchPage: React.FC = () => {
 
   // Add new function to start a scheduled match
   const handleStartScheduledMatch = async () => {
-    if (!gameId || !token || !canControlMatch) return;
+    if (!gameId || !canControlMatch) return;
 
     try {
-      await post(
-        `/games/${gameId}/match/start-scheduled`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      await gameAPI.startScheduledMatch(gameId);
 
       toast.success("New match started!");
       await fetchGameState();
@@ -642,7 +626,7 @@ const LiveMatchPage: React.FC = () => {
 
   // Coin toss
   const handleCoinToss = async () => {
-    if (!gameId || !token || !canControlMatch) return;
+    if (!gameId || !canControlMatch) return;
 
     if (!coinTossChoices.team_a_choice || !coinTossChoices.team_b_choice) {
       toast.error("Both teams must choose a side");
@@ -656,27 +640,34 @@ const LiveMatchPage: React.FC = () => {
     setSubmitting(true);
     try {
       const coinTossData = {
-        team_a_id: gameState?.coin_toss_state?.team_a_id,
-        team_b_id: gameState?.coin_toss_state?.team_b_id,
+        team_a_id: gameState?.coin_toss_state?.team_a_id || "",
+        team_b_id: gameState?.coin_toss_state?.team_b_id || "",
         team_a_choice: coinTossChoices.team_a_choice,
         team_b_choice: coinTossChoices.team_b_choice,
+        coin_toss_type: (gameState?.coin_toss_state as any)?.coin_toss_type,
       };
 
-      const result = await post(`/games/${gameId}/coin-toss`, coinTossData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const result = await gameAPI.performCoinToss(gameId, coinTossData);
+
+      const data = result.data as {
+        result: string;
+        winner_name: string;
+        message: string;
+        next_match?: { team_a_name: string; team_b_name: string };
+      };
+
       // Show detailed coin toss result
-      const coinResult = result.data.result;
-      const winnerName = result.data.winner_name;
-      const message = result.data.message;
+      const message = data.message;
 
       toast.success(`🪙 ${message}`, { autoClose: 5000 });
 
       // Show additional info about next match
-      if (result.data.next_match) {
+      if (data.next_match) {
         setTimeout(() => {
           toast.info(
-            `Next Match: ${result.data.next_match.team_a_name} vs ${result.data.next_match.team_b_name}`,
+            `Next Match: ${data.next_match!.team_a_name} vs ${
+              data.next_match!.team_b_name
+            }`,
             { autoClose: 3000 }
           );
         }, 1000);
@@ -1064,12 +1055,47 @@ const LiveMatchPage: React.FC = () => {
               <h2 className="text-xl font-bold mb-4 flex items-center">
                 <Crown className="w-5 h-5 text-yellow-600 mr-2" />
                 Coin Toss Required
+                {(gameState.coin_toss_state as any)?.coin_toss_type ===
+                  "draw_decider" && (
+                  <span className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
+                    DRAW DECIDER
+                  </span>
+                )}
+                {(gameState.coin_toss_state as any)?.coin_toss_type ===
+                  "starting_team" && (
+                  <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                    STARTING TEAM
+                  </span>
+                )}
               </h2>
               <div className="space-y-4">
-                <p className="text-gray-600">
-                  The previous match ended in a draw. A coin toss is required to
-                  determine who plays next.
-                </p>
+                {(gameState.coin_toss_state as any)?.coin_toss_type ===
+                "draw_decider" ? (
+                  <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                    <p className="text-red-800 font-medium">Draw Scenario</p>
+                    <p className="text-red-600 text-sm">
+                      These teams drew previously and are meeting again. The
+                      coin toss will determine which team gets to choose their
+                      starting position or has first possession.
+                    </p>
+                  </div>
+                ) : (gameState.coin_toss_state as any)?.coin_toss_type ===
+                  "starting_team" ? (
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <p className="text-blue-800 font-medium">
+                      Starting Team Selection
+                    </p>
+                    <p className="text-blue-600 text-sm">
+                      The coin toss will determine which team starts the match
+                      or has first possession.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-gray-600">
+                    The previous match ended in a draw. A coin toss is required
+                    to determine who plays next.
+                  </p>
+                )}
 
                 {!coinTossMode ? (
                   <button
@@ -1077,7 +1103,7 @@ const LiveMatchPage: React.FC = () => {
                     className="w-full bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700"
                     disabled={!canControlMatch}
                   >
-                    {canControlMatch ? "Start Coin Toss" : "Admin Only"}
+                    {canControlMatch ? "Start Coin Toss" : "Admin/Referee Only"}
                   </button>
                 ) : (
                   <div className="space-y-4">
@@ -1224,27 +1250,58 @@ const LiveMatchPage: React.FC = () => {
                     KNOCKOUT
                   </span>
                 )}
+                {(gameState.upcoming_match as any)?.requires_coin_toss && (
+                  <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded flex items-center">
+                    <Crown className="w-3 h-3 mr-1" />
+                    COIN TOSS
+                  </span>
+                )}
               </h2>
               <div className="space-y-4">
-                <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <p className="text-sm text-purple-600 mb-2">Up Next</p>
+                <div
+                  className={`text-center p-4 rounded-lg ${
+                    (gameState.upcoming_match as any)?.requires_coin_toss
+                      ? "bg-yellow-50 border border-yellow-200"
+                      : "bg-purple-50"
+                  }`}
+                >
+                  <p
+                    className={`text-sm mb-2 ${
+                      (gameState.upcoming_match as any)?.requires_coin_toss
+                        ? "text-yellow-600"
+                        : "text-purple-600"
+                    }`}
+                  >
+                    Up Next
+                  </p>
                   <p className="text-xl font-bold">
                     {getTeamName(gameState.upcoming_match.team_a_id)} vs{" "}
                     {getTeamName(gameState.upcoming_match.team_b_id)}
                   </p>
+                  {(gameState.upcoming_match as any)?.requires_coin_toss && (
+                    <div className="mt-2 p-2 bg-yellow-100 rounded border border-yellow-300">
+                      <p className="text-xs text-yellow-800 flex items-center justify-center">
+                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        Coin toss required - these teams drew previously
+                      </p>
+                    </div>
+                  )}
                   {gameState.is_knockout_stage && (
                     <p className="text-xs text-red-600 mt-2">
                       First to 1 goal wins
                     </p>
                   )}
-                  {!gameState.is_knockout_stage && (
-                    <p className="text-xs text-blue-600 mt-2">
-                      2-goal lead wins
-                    </p>
-                  )}
+                  {!gameState.is_knockout_stage &&
+                    !(gameState.upcoming_match as any)?.requires_coin_toss && (
+                      <p className="text-xs text-blue-600 mt-2">
+                        2-goal lead wins
+                      </p>
+                    )}
                 </div>
                 <p className="text-xs text-gray-500 text-center">
-                  Will start automatically when current match ends
+                  {(gameState.upcoming_match as any)?.requires_coin_toss
+                    ? "Coin toss will be performed after current match ends"
+                    : "Will start automatically when current match ends"}
                 </p>
               </div>
             </div>
@@ -1261,7 +1318,11 @@ const LiveMatchPage: React.FC = () => {
                 gameState.completed_matches.map((match, index) => (
                   <div
                     key={index}
-                    className="border-b last:border-b-0 pb-4 last:pb-0"
+                    className={`border-b last:border-b-0 pb-4 last:pb-0 ${
+                      (match as any).requires_coin_toss
+                        ? "bg-yellow-50 p-3 rounded-lg border-yellow-200"
+                        : ""
+                    }`}
                   >
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-sm text-gray-500">
@@ -1269,6 +1330,12 @@ const LiveMatchPage: React.FC = () => {
                           match.completed_at || ""
                         ).toLocaleTimeString()}
                       </span>
+                      {(match as any).requires_coin_toss && (
+                        <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded flex items-center">
+                          <Crown className="w-3 h-3 mr-1" />
+                          Coin Toss
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between items-center">
                       <div className="text-center flex-1">
@@ -1282,6 +1349,12 @@ const LiveMatchPage: React.FC = () => {
                         {match.winner_id === match.team_a_id && (
                           <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full mt-1 inline-block">
                             WINNER
+                          </div>
+                        )}
+                        {(match as any).coin_toss_winner_id ===
+                          match.team_a_id && (
+                          <div className="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full mt-1 inline-block ml-1">
+                            🪙 WON TOSS
                           </div>
                         )}
                       </div>
@@ -1299,11 +1372,25 @@ const LiveMatchPage: React.FC = () => {
                             WINNER
                           </div>
                         )}
+                        {(match as any).coin_toss_winner_id ===
+                          match.team_b_id && (
+                          <div className="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full mt-1 inline-block ml-1">
+                            🪙 WON TOSS
+                          </div>
+                        )}
                       </div>
                     </div>
                     {match.is_draw && (
                       <p className="text-sm text-yellow-600 text-center mt-2">
-                        Draw
+                        Draw - Teams return to rotation
+                      </p>
+                    )}
+                    {(match as any).coin_toss_performed_at && (
+                      <p className="text-sm text-blue-600 text-center mt-1">
+                        Coin toss performed at{" "}
+                        {new Date(
+                          (match as any).coin_toss_performed_at
+                        ).toLocaleTimeString()}
                       </p>
                     )}
                     <p className="text-sm text-gray-500 text-center mt-2">

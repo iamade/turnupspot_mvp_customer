@@ -335,8 +335,10 @@ docker-compose up --build
 ```
 docker build -t turnupspot_backend .
 docker run -p 8000:8000 --env-file .env turnupspot_backend
+
+docker exec -it turnupspot_backend bash
 ```
-    docker exec -it turnupspot_backend bash
+    
 
 Make sure to set the correct environment variables for database and service connections.
 

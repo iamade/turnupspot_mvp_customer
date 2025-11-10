@@ -132,6 +132,9 @@ export const gameAPI = {
   startTimer: (gameId: string) =>
     post(`/games/${gameId}/timer/start`),
 
+  updateTimer: (gameId: string, data: { action: string; time?: number }) =>
+    post(`/games/${gameId}/timer`, data),
+
   getTimerStatus: (gameId: string) =>
     get(`/games/${gameId}/timer`),
 

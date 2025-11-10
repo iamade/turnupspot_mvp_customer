@@ -201,16 +201,26 @@ def update_game_timer(
     
     # Update timer based on action
     if timer_update.action == "start":
-        game.is_timer_running = True
+        game.timer_is_running = True
         if game.status == GameStatus.SCHEDULED:
             game.status = GameStatus.IN_PROGRESS
+    elif timer_update.action == "pause":
+        # Store current remaining time and stop the timer
+        remaining_time = game.get_remaining_time()
+        game.timer_remaining_seconds = remaining_time
+        game.timer_is_running = False
+        game.timer_started_at = None
+    elif timer_update.action == "resume":
+        # Start the timer again from current remaining time
+        game.timer_is_running = True
+        game.timer_started_at = datetime.now(timezone.utc)
     elif timer_update.action == "stop":
-        game.is_timer_running = False
+        game.timer_is_running = False
         if game.current_time <= 0:
             game.status = GameStatus.COMPLETED
     elif timer_update.action == "reset":
         game.current_time = timer_update.time or 0
-        game.is_timer_running = False
+        game.timer_is_running = False
     
     if timer_update.time is not None:
         game.current_time = timer_update.time
@@ -292,50 +302,30 @@ def get_game_state(
                 current_match.is_draw = True
                 current_match.winner_id = None
 
-                # For draws, set up coin toss
-                current_match.requires_coin_toss = True
-                current_match.coin_toss_type = CoinTossType.draw_decider  # Use DRAW_DECIDER for all draws to trigger next match creation
+                # Determine draw state using unified function
+                # Note: We need to determine if we're in knockout stage for the draw logic
+                # For timer expiration, we'll assume first rotation for simplicity
+                draw_state = _determine_draw_state(current_match, is_knockout_stage=False, db=db)
 
-                # Set coin toss state for the game
-                game.coin_toss_state = {
-                    "pending": True,
-                    "team_a_id": current_match.team_a_id,
-                    "team_b_id": current_match.team_b_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "stage": "first_rotation",
-                    "draw_type": "0-0" if (current_match.team_a_score == 0 and current_match.team_b_score == 0) else "with_goals",
-                    "purpose": "Draw - coin toss to determine who gets priority in next rotation"
-                }
+                if draw_state["requires_coin_toss"]:
+                    current_match.requires_coin_toss = True
+                    current_match.coin_toss_type = draw_state["coin_toss_type"].value
 
-                # For 0-0 draws, immediately create and start the next match with next available teams
-                next_match_created = False
-                if current_match.team_a_score == 0 and current_match.team_b_score == 0:
-                    next_match_info = _create_next_match_with_rotation(
-                        game_id,
-                        current_match,
-                        None,  # No winner for draw
-                        None,  # No loser for draw
-                        db
-                    )
+                    # Set coin toss state for the game
+                    game.coin_toss_state = {
+                        "pending": True,
+                        "team_a_id": current_match.team_a_id,
+                        "team_b_id": current_match.team_b_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "stage": "first_rotation",
+                        "draw_type": draw_state["draw_type"],
+                        "purpose": draw_state["purpose"]
+                    }
 
-                    # If a next match was created, start it immediately
-                    if next_match_info.get("created"):
-                        next_match = db.query(Match).filter(Match.id == next_match_info["match_id"]).first()
-                        if next_match:
-                            next_match.status = MatchStatus.IN_PROGRESS
-                            next_match.started_at = datetime.now(timezone.utc)
-
-                            # Reset and start timer for new match
-                            game.timer_started_at = datetime.now(timezone.utc)
-                            game.timer_remaining_seconds = 420
-                            game.timer_is_running = True
-                            next_match_created = True
-
-            # Stop the timer (only if no new match was started for 0-0 draw)
-            if not next_match_created:
-                game.timer_is_running = False
-                game.timer_started_at = None
-                game.timer_remaining_seconds = 420
+                    # Stop the timer when coin toss is required - game pauses until coin toss is completed
+                    game.timer_is_running = False
+                    game.timer_started_at = None
+                    game.timer_remaining_seconds = 420
 
             db.commit()
 
@@ -449,19 +439,24 @@ def get_game_state(
         ).first()
 
         if scheduled_match_requiring_toss:
+            coin_toss_type = scheduled_match_requiring_toss.coin_toss_type or CoinTossType.DRAW_DECIDER
             coin_toss_state = {
                 "pending": True,
                 "team_a_id": scheduled_match_requiring_toss.team_a_id,
                 "team_b_id": scheduled_match_requiring_toss.team_b_id,
                 "match_id": scheduled_match_requiring_toss.id,
-                "coin_toss_type": scheduled_match_requiring_toss.coin_toss_type if scheduled_match_requiring_toss.coin_toss_type else "draw_decider",
-                "reason": "rematch_after_draw" if scheduled_match_requiring_toss.coin_toss_type == CoinTossType.draw_decider else "starting_team"
+                "coin_toss_type": coin_toss_type if isinstance(coin_toss_type, str) else coin_toss_type.value,
+                "reason": "rematch_after_draw" if coin_toss_type == CoinTossType.DRAW_DECIDER else "starting_team"
             }
     
     
     # Determine upcoming match based on available teams
+    # Only show upcoming match if no coin toss is pending
     upcoming_match = None
-    if scheduled_match:
+    if coin_toss_state and coin_toss_state.get("pending"):
+        # Coin toss is pending - do not show upcoming match until coin toss is completed
+        upcoming_match = None
+    elif scheduled_match:
         # There's a scheduled match - use it
         upcoming_match = {
             "team_a_id": scheduled_match.team_a_id,
@@ -475,15 +470,25 @@ def get_game_state(
     elif current_match and current_match.status == MatchStatus.IN_PROGRESS:
         # Predict next match based on current score and game state
         upcoming_match = _predict_next_match(
-            current_match, 
-            available_teams, 
-            team_info, 
-            completed_matches, 
+            current_match,
+            available_teams,
+            team_info,
+            completed_matches,
             is_knockout_stage
         )
     elif not current_match and len(available_teams) >= 2:
         # No current match, show next two available teams based on rotation
-        next_teams = _get_next_teams_for_match(completed_matches, available_teams, team_info, is_knockout_stage)
+        next_teams = _get_next_teams_for_match(
+            db.query(Match).filter(
+                and_(
+                    Match.game_id == game_id,
+                    Match.status == MatchStatus.COMPLETED
+                )
+            ).order_by(Match.completed_at.desc()).all(),
+            available_teams,
+            team_info,
+            is_knockout_stage
+        )
         if next_teams:
             upcoming_match = {
                 "team_a_id": next_teams[0]["id"],
@@ -665,6 +670,7 @@ def _create_next_match_after_coin_toss(game_id: str, winner_id: str, loser_id: s
             }        
         
 def _get_next_teams_for_match(completed_matches, available_teams, team_info, is_knockout_stage):
+    print(f"DEBUG: Type of completed_matches[0]: {type(completed_matches[0]) if completed_matches else 'No matches'}")
     """Get the next two teams that should play based on rotation priority"""
     if len(available_teams) < 2:
         return None
@@ -825,10 +831,13 @@ def get_suggested_teams_for_match(
     # Get game state
     game_state = get_game_state(game_id, current_user, db)
     
-    available_teams = game_state["available_teams"]
-    completed_matches = game_state["completed_matches"]
-    team_info = game_state["team_details"]
-    is_knockout_stage = game_state["is_knockout_stage"]
+    if game_state:
+        available_teams = game_state.get("available_teams", [])
+        completed_matches = game_state.get("completed_matches", [])
+        team_info = game_state.get("team_details", {})
+        is_knockout_stage = game_state.get("is_knockout_stage", False)
+    else:
+        available_teams, completed_matches, team_info, is_knockout_stage = [], [], {}, False
     
     if len(available_teams) < 2:
         return {
@@ -936,6 +945,23 @@ def create_manual_match(
 # Update the coin toss endpoint to handle the rotation properly
 # Update the coin toss endpoint to call the correct function:
 
+def _validate_coin_toss_type(coin_toss_type_str: str) -> CoinTossType:
+    """Validate and convert coin_toss_type string to enum"""
+    try:
+        # Try to match the string to enum values (case-insensitive)
+        for enum_member in CoinTossType:
+            if enum_member.value.lower() == coin_toss_type_str.lower():
+                return enum_member
+        # If no match found, raise ValueError
+        raise ValueError(f"Invalid coin toss type: {coin_toss_type_str}")
+    except ValueError:
+        valid_types = [e.value for e in CoinTossType]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid coin toss type '{coin_toss_type_str}'. Valid types are: {', '.join(valid_types)}"
+        )
+
+
 @router.post("/{game_id}/coin-toss")
 def coin_toss(
     game_id: UUID,
@@ -988,14 +1014,11 @@ def coin_toss(
     winner_team = db.query(GameTeam).filter(GameTeam.id == coin_toss_winner_id).first()
     loser_team = db.query(GameTeam).filter(GameTeam.id == coin_toss_loser_id).first()
 
-    # Determine coin toss type and handle accordingly
-    coin_toss_type = data.get("coin_toss_type", "draw_decider").lower()
+    # Validate and convert coin toss type to enum
+    coin_toss_type_str = data.get("coin_toss_type", "draw_decider")
+    coin_toss_type = _validate_coin_toss_type(coin_toss_type_str)
 
-    # Validate coin toss type
-    if coin_toss_type not in ["draw_decider", "starting_team"]:
-        raise HTTPException(status_code=400, detail="Invalid coin toss type")
-
-    if coin_toss_type == "draw_decider":
+    if coin_toss_type == CoinTossType.DRAW_DECIDER:
         # For draw decider: winner gets priority in rotation
         next_match_result = _create_next_match_after_coin_toss(
             str(game_id),
@@ -1004,7 +1027,7 @@ def coin_toss(
             db
         )
         message = f"Coin landed on {result}! {winner_team.team_name if winner_team else 'Winner'} gets priority in next rotation."
-    elif coin_toss_type == "starting_team":
+    elif coin_toss_type == CoinTossType.STARTING_TEAM:
         # For starting team: winner starts the match
         # Find the match that requires this coin toss
         pending_match = db.query(Match).filter(
@@ -1035,24 +1058,11 @@ def coin_toss(
         next_match_result = {"created": False, "message": "Coin toss completed for starting team"}
         message = f"Coin landed on {result}! {winner_team.team_name if winner_team else 'Winner'} starts the match."
     else:
-        raise HTTPException(status_code=400, detail="Invalid coin toss type")
+        # This should never happen due to validation, but just in case
+        raise HTTPException(status_code=400, detail=f"Unsupported coin toss type: {coin_toss_type}")
 
-    # Store coin toss result in game
-    game.coin_toss_state = {
-        "team_a_id": data["team_a_id"],
-        "team_b_id": data["team_b_id"],
-        "team_a_choice": team_a_choice,
-        "team_b_choice": team_b_choice,
-        "result": result,
-        "winner_id": coin_toss_winner_id,
-        "loser_id": coin_toss_loser_id,
-        "winner_name": winner_team.team_name if winner_team else "Unknown",
-        "loser_name": loser_team.team_name if loser_team else "Unknown",
-        "coin_toss_type": coin_toss_type,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "pending": False,  # Mark as completed
-        "next_match_created": next_match_result.get("created", False)
-    }
+    # Clear coin toss state after processing is complete
+    game.coin_toss_state = None
 
     db.commit()
 
@@ -1063,7 +1073,7 @@ def coin_toss(
         "winner_name": winner_team.team_name if winner_team else "Unknown",
         "loser_name": loser_team.team_name if loser_team else "Unknown",
         "coin_result": result,
-        "coin_toss_type": coin_toss_type,
+        "coin_toss_type": coin_toss_type.value,
         "message": message,
         "next_match": next_match_result if next_match_result.get("created") else None
     }
@@ -1438,9 +1448,9 @@ def update_match_score(
         next_match_info = _create_next_match_with_rotation(
             game_id_str, 
             current_match, 
-            current_match.winner_id, 
-            None,  # loser_id not needed since winner_id tells us everything
-            db
+            winner_id=current_match.winner_id if current_match.winner_id else "unknown",  # Use match winner
+            loser_id=loser_id if 'loser_id' in locals() else "unknown",  # Ensure loser_id is defined
+            db=db
         )
     
     db.commit()
@@ -1530,21 +1540,32 @@ def _create_next_match_with_rotation(game_id: str, completed_match: Match, winne
     next_team_b = None
     
     # Handle different match outcomes
-    if completed_match.is_draw and completed_match.team_a_score == 0 and completed_match.team_b_score == 0:
-        # 0-0 draw: both teams out, next two available teams play
-        available_teams = _get_next_available_teams_with_players(team_stats, exclude_teams=set())
-        if len(available_teams) >= 2:
-            next_team_a = available_teams[0]
-            next_team_b = available_teams[1]
-    elif completed_match.is_draw:
-        # Draw with goals: coin toss needed
-        return {
-            "message": "Coin toss required for draw",
-            "requires_coin_toss": True,
-            "team_a_id": completed_match.team_a_id,
-            "team_b_id": completed_match.team_b_id,
-            "created": False
-        }
+    if completed_match.is_draw:
+        # Determine draw state using unified function
+        # We need to determine if we're in knockout stage
+        # For this function, we'll check based on team stats (if all teams have played, we're in knockout)
+        total_teams = len(team_stats)
+        teams_that_played = sum(1 for stats in team_stats.values() if stats["has_played"])
+        is_knockout_stage = teams_that_played >= total_teams
+
+        draw_state = _determine_draw_state(completed_match, is_knockout_stage, db)
+
+        if draw_state["requires_coin_toss"]:
+            # Coin toss needed for this draw
+            return {
+                "message": draw_state["purpose"],
+                "requires_coin_toss": True,
+                "team_a_id": completed_match.team_a_id,
+                "team_b_id": completed_match.team_b_id,
+                "created": False
+            }
+        elif draw_state["draw_type"] == "0-0":
+            # 0-0 draw: both teams out, next two available teams play
+            available_teams = _get_next_available_teams_with_players(team_stats, exclude_teams=set())
+            if len(available_teams) >= 2:
+                next_team_a = available_teams[0]
+                next_team_b = available_teams[1]
+        # For draws with goals in knockout stage, both teams continue - handled by the normal winner/loser logic below
     elif winner_id and winner_id in team_stats:
         # Winner stays, find next opponent based on priority
         winner_team = team_stats[winner_id]["team"]
@@ -1573,7 +1594,7 @@ def _create_next_match_with_rotation(game_id: str, completed_match: Match, winne
             team_b_score=0,
             status=MatchStatus.SCHEDULED,
             requires_coin_toss=requires_coin_toss,
-            coin_toss_type=CoinTossType.draw_decider if requires_coin_toss else None,
+            coin_toss_type=CoinTossType.DRAW_DECIDER.value if requires_coin_toss else None,
             created_at=datetime.now(timezone.utc)
         )
         db.add(new_match)
@@ -1590,6 +1611,124 @@ def _create_next_match_with_rotation(game_id: str, completed_match: Match, winne
         }
     
     return {"message": "No more matches possible", "created": False}
+
+
+def _determine_draw_state(current_match: Match, is_knockout_stage: bool, db: Session) -> dict:
+    """
+    Determine the draw state for a match.
+    Args:
+        current_match (Match): The match object.
+        is_knockout_stage (bool): Whether the match is in the knockout stage.
+        db (Session): The database session.
+
+    Returns:
+        dict: A dictionary containing the draw state.
+    """
+    if not current_match or not isinstance(current_match, Match):
+        raise ValueError("Invalid match object provided.")
+
+    if current_match.team_a_score is None or current_match.team_b_score is None:
+        raise ValueError("Match scores must be defined.")
+
+    team_a_score = current_match.team_a_score
+    team_b_score = current_match.team_b_score
+
+    if team_a_score == 0 and team_b_score == 0:
+        # 0-0 draw: Coin toss required to determine play order
+        return {
+            "requires_coin_toss": True,
+            "coin_toss_type": CoinTossType.STARTING_TEAM,
+            "draw_type": "0-0",
+            "purpose": "0-0 draw - coin toss to determine who plays first in next rotation"
+        }
+    elif is_knockout_stage and team_a_score == team_b_score:
+        # Draw with goals in knockout stage: No coin toss needed
+        return {
+            "requires_coin_toss": False,
+            "coin_toss_type": None,
+            "draw_type": "with_goals",
+            "purpose": "Draw with goals in knockout stage - both teams continue in rotation"
+        }
+    elif team_a_score == team_b_score:
+        # Draw with goals in first rotation: Coin toss required
+        return {
+            "requires_coin_toss": True,
+            "coin_toss_type": CoinTossType.DRAW_DECIDER,
+            "draw_type": "with_goals",
+            "purpose": "Draw with goals - coin toss to determine who gets priority in next rotation"
+        }
+    else:
+        raise ValueError("Unexpected match state encountered.")
+    print(f"DEBUG: Evaluating draw state for match {current_match.id}")
+    print(f"DEBUG: Scores - Team A: {current_match.team_a_score}, Team B: {current_match.team_b_score}")
+    print(f"DEBUG: Knockout stage: {is_knockout_stage}")
+    """
+    Unified function to determine draw state and coin toss requirements.
+
+    Returns:
+        {
+            "requires_coin_toss": bool,
+            "coin_toss_type": CoinTossType or None,
+            "draw_type": "0-0" or "with_goals",
+            "purpose": str describing the purpose
+        }
+    """
+    game_id = current_match.game_id
+    team_a_id = current_match.team_a_id
+    team_b_id = current_match.team_b_id
+    team_a_score = current_match.team_a_score
+    team_b_score = current_match.team_b_score
+
+    # Determine draw type
+    draw_type = "0-0" if (team_a_score == 0 and team_b_score == 0) else "with_goals"
+
+    # Check if this is a rematch between previously drawn teams
+    previous_draws = db.query(Match).filter(
+        and_(
+            Match.game_id == game_id,
+            Match.is_draw == True,
+            or_(
+                and_(Match.team_a_id == team_a_id, Match.team_b_id == team_b_id),
+                and_(Match.team_a_id == team_b_id, Match.team_b_id == team_a_id)
+            )
+        )
+    ).all()
+
+    if previous_draws:
+        # Rematch between teams that previously drew - coin toss required
+        return {
+            "requires_coin_toss": True,
+            "coin_toss_type": CoinTossType.DRAW_DECIDER,
+            "draw_type": draw_type,
+            "purpose": "Rematch after previous draw - coin toss to determine who gets priority in next rotation"
+        }
+    elif team_a_score == 0 and team_b_score == 0:
+        # 0-0 draw: Coin toss required to determine play order
+        print("DEBUG: Handling 0-0 draw scenario.")
+        return {
+            "requires_coin_toss": True,
+            "coin_toss_type": CoinTossType.STARTING_TEAM,
+            "draw_type": "0-0",
+            "purpose": "0-0 draw - coin toss to determine who plays first in next rotation"
+        }
+    elif is_knockout_stage and draw_type == "with_goals":
+        # Draw with goals in knockout stage: No coin toss needed
+        print("DEBUG: Handling draw with goals in knockout stage.")
+        return {
+            "requires_coin_toss": False,
+            "coin_toss_type": None,
+            "draw_type": "with_goals",
+            "purpose": "Draw with goals in knockout stage - both teams continue in rotation"
+        }
+    elif draw_type == "with_goals":
+        # Draw with goals in first rotation: Coin toss required
+        print("DEBUG: Handling draw with goals in first rotation.")
+        return {
+            "requires_coin_toss": True,
+            "coin_toss_type": CoinTossType.DRAW_DECIDER,
+            "draw_type": "with_goals",
+            "purpose": "Draw with goals - coin toss to determine who gets priority in next rotation"
+        }
 
 
 def _check_if_match_requires_coin_toss(game_id: str, team_a_id: str, team_b_id: str, db: Session) -> bool:
@@ -1729,35 +1868,13 @@ def end_current_match(
         current_match.is_draw = True
         current_match.winner_id = None
 
-        # Check if this is a rematch between previously drawn teams
-        previous_draws = db.query(Match).filter(
-            and_(
-                Match.game_id == game_id_str,
-                Match.is_draw == True,
-                or_(
-                    and_(Match.team_a_id == current_match.team_a_id, Match.team_b_id == current_match.team_b_id),
-                    and_(Match.team_a_id == current_match.team_b_id, Match.team_b_id == current_match.team_a_id)
-                )
-            )
-        ).all()
+        # Determine draw state using unified function
+        draw_state = _determine_draw_state(current_match, is_knockout_stage, db)
+        requires_coin_toss = draw_state["requires_coin_toss"]
 
-        if previous_draws:
-            # This is a rematch between teams that previously drew - coin toss required
-            requires_coin_toss = True
+        if requires_coin_toss:
             current_match.requires_coin_toss = True
-            current_match.coin_toss_type = CoinTossType.draw_decider.value
-        elif current_match.team_a_score == 0 and current_match.team_b_score == 0:
-            # 0-0 draw: Coin toss required to determine play order
-            requires_coin_toss = True
-            current_match.requires_coin_toss = True
-            current_match.coin_toss_type = CoinTossType.STARTING_TEAM.value
-        elif not is_knockout_stage:
-            # Draw with goals in first rotation: Coin toss required
-            requires_coin_toss = True
-            current_match.requires_coin_toss = True
-            current_match.coin_toss_type = CoinTossType.draw_decider.value
-        # Note: In knockout stage, draws with goals shouldn't happen (first to 1 goal)
-        # but if they do, no coin toss needed as both teams continue in rotation
+            current_match.coin_toss_type = draw_state["coin_toss_type"].value
     
     # Reset game timer
     game.timer_is_running = False
@@ -1768,23 +1885,14 @@ def end_current_match(
     
     if requires_coin_toss:
         # Store coin toss state for frontend to handle
-        coin_toss_purpose = ""
-        if current_match.team_a_score == 0 and current_match.team_b_score == 0:
-            coin_toss_purpose = "0-0 draw - coin toss to determine who plays first in next rotation"
-        else:
-            if is_knockout_stage:
-                coin_toss_purpose = "Draw with goals in knockout stage - coin toss to determine who plays first in next rotation"
-            else:
-                coin_toss_purpose = "Draw with goals - coin toss to determine who plays first in next rotation"
-        
         game.coin_toss_state = {
             "pending": True,
             "team_a_id": current_match.team_a_id,
             "team_b_id": current_match.team_b_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "stage": "knockout_stage" if is_knockout_stage else "first_rotation",
-            "draw_type": "0-0" if (current_match.team_a_score == 0 and current_match.team_b_score == 0) else "with_goals",
-            "purpose": coin_toss_purpose
+            "draw_type": draw_state["draw_type"],
+            "purpose": draw_state["purpose"]
        }
         
         team_a = db.query(GameTeam).filter(GameTeam.id == current_match.team_a_id).first()
@@ -1796,9 +1904,9 @@ def end_current_match(
                 "team_b_id": current_match.team_b_id,
                 "team_a_name": team_a.team_name if team_a else "Unknown",
                 "team_b_name": team_b.team_name if team_b else "Unknown",
-                "message": coin_toss_purpose,
+                "message": draw_state["purpose"],
                 "stage": "knockout_stage" if is_knockout_stage else "first_rotation",
-                "draw_type": "0-0" if (current_match.team_a_score == 0 and current_match.team_b_score == 0) else "with_goals"
+                "draw_type": draw_state["draw_type"]
             }
     else:
         # Create next match based on outcome
@@ -1807,8 +1915,8 @@ def end_current_match(
             next_match_info = _create_next_match_with_rotation(
                 game_id_str, 
                 current_match, 
-                winner_team_id, 
-                loser_team_id, 
+                winner_team_id or "unknown_winner",
+                loser_team_id or "unknown_loser",
                 db
             )    
     db.commit()
@@ -1832,7 +1940,7 @@ def end_current_match(
             "team_b_score": current_match.team_b_score,
             "requires_coin_toss": requires_coin_toss,
             "stage": stage_info + draw_info,
-            "draw_type": "0-0" if (current_match.is_draw and current_match.team_a_score == 0 and current_match.team_b_score == 0) else "with_goals" if current_match.is_draw else None
+            "draw_type": draw_state["draw_type"] if current_match.is_draw else None
         },
         "next_match": next_match_info,
         "timer_reset": True,
@@ -2030,7 +2138,7 @@ def _determine_next_match(game_id: str, completed_match: Match, winner_id: str, 
                 "team_b_name": available_teams[0].team_name
             }
     
-    return None
+    return {}
 
 @router.get("/{game_id}/next-match")
 def get_next_match(
@@ -2135,7 +2243,7 @@ def _find_next_opponent(game_id: str, winner_id: str, completed_matches: list, d
         # Return the first available team (you could implement more sophisticated selection)
         return available_teams[0]
     
-    return None
+    return "unknown"
 
 
 def _assign_referee_from_non_playing_teams(game_id: str, team_a_id: str, team_b_id: str, db: Session) -> str:
@@ -2153,7 +2261,7 @@ def _assign_referee_from_non_playing_teams(game_id: str, team_a_id: str, team_b_
         if referee_team.captain_id:
             return referee_team.captain_id
     
-    return None
+    return "unknown"
 
 
 @router.post("/{game_id}/start-match")
@@ -2178,7 +2286,14 @@ def start_match(
     is_admin = (membership.role == MemberRole.ADMIN if membership else False)
     if not (is_referee or is_admin):
         raise ForbiddenException("Only referee or admin can start matches")
-    
+
+    # Check if timer is running before allowing match to start
+    if not game.timer_is_running:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Timer must be started before the match can begin. Please start the timer first."
+        )
+
     team_a_id = match_data.get("team_a_id")
     team_b_id = match_data.get("team_b_id")
     

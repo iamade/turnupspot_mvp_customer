@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
 import MainLayout from "./components/layout/MainLayout";
 import LandingPage from "./pages/LandingPage";
 import Home from "./pages/Home";
@@ -35,8 +35,10 @@ import "react-toastify/dist/ReactToastify.css";
 
 const GlobalLoadingSpinner: React.FC = () => {
   const { isLoading } = useLoading();
+  const location = useLocation();
 
-  if (!isLoading) return null;
+  // Disable global loader on live-match page to prevent interference with coin toss
+  if (!isLoading || location.pathname.includes('/live-match')) return null;
 
   return <LoadingSpinner overlay size="lg" message="Loading..." />;
 };

@@ -16,7 +16,6 @@ import { Howl } from "howler";
 import { useAuth } from "../contexts/AuthContext";
 import { gameAPI } from "../api";
 import { toast } from "react-toastify";
-import type { CoinTossType, Match as MatchType, Game } from "../types";
 
 interface SuggestedTeamsResponse {
   suggested_teams: AvailableTeam[];
@@ -155,11 +154,13 @@ const LiveMatchPage: React.FC = () => {
 
   const [timeRemaining, setTimeRemaining] = useState<number>(420); // 7 minutes in seconds
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
+  const [isTimerPaused, setIsTimerPaused] = useState<boolean>(false);
   const [matchEnded, setMatchEnded] = useState<boolean>(false);
   const [gameDayInfo, setGameDayInfo] = useState<GameDayInfo | null>(null);
 
   // Add this function to fetch game day info:
   const fetchGameDayInfo = async () => {
+    console.log("fetchGameDayInfo called");
     if (!id) return;
 
     try {
@@ -172,6 +173,7 @@ const LiveMatchPage: React.FC = () => {
 
   // Update the useEffect to also fetch game day info:
   useEffect(() => {
+    console.log("Polling fetchGameState and fetchGameDayInfo");
     fetchGameState();
     fetchGameDayInfo();
     // Poll for updates every 5 seconds
@@ -184,20 +186,24 @@ const LiveMatchPage: React.FC = () => {
 
   // Fetch timer status from server
   const fetchTimerStatus = async () => {
+    console.log("fetchTimerStatus called");
     if (!gameId) return;
 
     try {
       const response = await gameAPI.getTimerStatus(gameId);
 
-      const { is_running, remaining_seconds, timer_expired } =
+      const { is_running, remaining_seconds, timer_expired, started_at } =
         response.data as {
           is_running: boolean;
           remaining_seconds: number;
           timer_expired: boolean;
+          started_at?: string;
         };
 
       setTimeRemaining(remaining_seconds);
       setIsTimerRunning(is_running && !timer_expired);
+      // If timer has been started before but is not currently running, it's paused
+      setIsTimerPaused(!!started_at && !is_running && !timer_expired);
 
       if (timer_expired && is_running) {
         handleTimerExpired();
@@ -216,6 +222,7 @@ const LiveMatchPage: React.FC = () => {
 
   // Update useEffect to fetch timer status on mount and periodically
   useEffect(() => {
+    console.log("Polling fetchTimerStatus");
     if (gameId) {
       fetchTimerStatus();
       const timerStatusInterval = setInterval(fetchTimerStatus, 2000); // Sync every 2 seconds
@@ -272,9 +279,40 @@ const LiveMatchPage: React.FC = () => {
 
       // Start frontend timer
       setIsTimerRunning(true);
+      setIsTimerPaused(false);
     } catch (error) {
       console.error("Error starting timer:", error);
       toast.error("Failed to start match timer");
+    }
+  };
+
+  // Pause match timer
+  const handlePauseTimer = async () => {
+    if (!gameId || !canControlMatch) return;
+
+    try {
+      await gameAPI.updateTimer(gameId, { action: "pause" });
+      toast.info("Match paused");
+      setIsTimerRunning(false);
+      setIsTimerPaused(true);
+    } catch (error) {
+      console.error("Error pausing timer:", error);
+      toast.error("Failed to pause match timer");
+    }
+  };
+
+  // Resume match timer
+  const handleResumeTimer = async () => {
+    if (!gameId || !canControlMatch) return;
+
+    try {
+      await gameAPI.updateTimer(gameId, { action: "resume" });
+      toast.success("Match resumed!");
+      setIsTimerRunning(true);
+      setIsTimerPaused(false);
+    } catch (error) {
+      console.error("Error resuming timer:", error);
+      toast.error("Failed to resume match timer");
     }
   };
 
@@ -282,7 +320,7 @@ const LiveMatchPage: React.FC = () => {
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
-    if (isTimerRunning && timeRemaining > 0 && !matchEnded) {
+    if (isTimerRunning && !isTimerPaused && timeRemaining > 0 && !matchEnded) {
       interval = setInterval(() => {
         setTimeRemaining((prev) => {
           const newTime = prev - 1;
@@ -296,7 +334,7 @@ const LiveMatchPage: React.FC = () => {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isTimerRunning, timeRemaining, matchEnded]);
+  }, [isTimerRunning, isTimerPaused, timeRemaining, matchEnded]);
 
   // Add function to handle match ending
   const handleEndMatch = async () => {
@@ -423,6 +461,7 @@ const LiveMatchPage: React.FC = () => {
   };
 
   const fetchGameState = async () => {
+    console.log("fetchGameState called");
     if (!id) return;
 
     try {
@@ -784,20 +823,36 @@ const LiveMatchPage: React.FC = () => {
                   </span>
                 </div>
                 {canControlMatch && (
-                  <button
-                    onClick={handleStartTimer}
-                    disabled={isTimerRunning || submitting}
-                    className={`flex items-center justify-center space-x-2 px-6 py-3 rounded-lg w-full ${
-                      isTimerRunning
-                        ? "bg-gray-400 cursor-not-allowed"
-                        : "bg-blue-600 hover:bg-blue-700 text-white"
-                    }`}
-                  >
-                    <Whistle className="w-5 h-5" />
-                    <span>
-                      {isTimerRunning ? "Match in Progress" : "Start"}
-                    </span>
-                  </button>
+                  <div className="flex space-x-2">
+                    {!isTimerRunning && !isTimerPaused && (
+                      <button
+                        onClick={handleStartTimer}
+                        disabled={submitting}
+                        className="flex items-center justify-center space-x-2 px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex-1"
+                      >
+                        <Whistle className="w-5 h-5" />
+                        <span>Start</span>
+                      </button>
+                    )}
+                    {isTimerRunning && (
+                      <button
+                        onClick={handlePauseTimer}
+                        disabled={submitting}
+                        className="flex items-center justify-center space-x-2 px-6 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 text-white flex-1"
+                      >
+                        <span>Pause</span>
+                      </button>
+                    )}
+                    {isTimerPaused && (
+                      <button
+                        onClick={handleResumeTimer}
+                        disabled={submitting}
+                        className="flex items-center justify-center space-x-2 px-6 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white flex-1"
+                      >
+                        <span>Resume</span>
+                      </button>
+                    )}
+                  </div>
                 )}
                 {!canControlMatch && isTimerRunning && (
                   <div className="text-sm text-gray-600">Match in progress</div>

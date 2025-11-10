@@ -116,7 +116,7 @@ class GameResponse(BaseModel):
 
 
 class GameTimerUpdate(BaseModel):
-    action: str  # "start", "stop", "reset"
+    action: str  # "start", "stop", "reset", "pause", "resume"
     time: Optional[int] = None  # For setting specific time
 
 

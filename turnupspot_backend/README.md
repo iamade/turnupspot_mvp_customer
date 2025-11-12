@@ -1,3 +1,20 @@
+{
+    "detail": "Only the first 10 arrivals can be assigned to Team 1 or 2. Player enzo is not among the first 10 arrivals.",
+    "type": "HTTPException"
+} frontend not displaying this error
+
+Request URL
+http://localhost:8000/api/v1/games/2373d144-6f23-4966-a7a3-eff5b0fa1c1e/start-match
+Request Method
+POST
+Status Code
+
+
+{
+    "detail": "Timer must be started before the match can begin. Please start the timer first.",
+    "type": "HTTPException"
+}
+
 # TurnUp Spot Backend API
 
 A comprehensive FastAPI backend for the TurnUp Spot platform - Events, Sports, and Vendor Management.

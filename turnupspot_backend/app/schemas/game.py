@@ -1,8 +1,8 @@
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 
-from app.models.game import GameStatus, PlayerStatus
+from app.models.game import GameStatus, PlayerStatus, CoinTossType
 
 
 class GameTeamBase(BaseModel):
@@ -124,3 +124,31 @@ class GameScoreUpdate(BaseModel):
     team_id: str
     action: str  # "increment", "decrement", "set"
     value: Optional[int] = None  # For setting specific score
+
+
+class CoinTossRequest(BaseModel):
+    """Schema for coin toss request with validation"""
+    team_a_id: str
+    team_b_id: str
+    team_a_choice: str  # "heads" or "tails"
+    team_b_choice: str  # "heads" or "tails"
+    coin_toss_type: str = "draw_decider"  # "draw_decider" or "starting_team"
+    
+    @field_validator('coin_toss_type')
+    @classmethod
+    def validate_coin_toss_type(cls, v: str) -> str:
+        """Validate that coin_toss_type is a valid enum value"""
+        valid_values = [e.value for e in CoinTossType]
+        if v.lower() not in valid_values:
+            raise ValueError(
+                f"Invalid coin_toss_type '{v}'. Must be one of: {', '.join(valid_values)}"
+            )
+        return v.lower()  # Normalize to lowercase
+    
+    @field_validator('team_a_choice', 'team_b_choice')
+    @classmethod
+    def validate_choice(cls, v: str) -> str:
+        """Validate that choice is heads or tails"""
+        if v.lower() not in ['heads', 'tails']:
+            raise ValueError("Choice must be 'heads' or 'tails'")
+        return v.lower()

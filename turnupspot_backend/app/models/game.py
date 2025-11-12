@@ -57,7 +57,7 @@ class Match(Base):
 
     # Coin toss tracking fields
     requires_coin_toss = Column(Boolean, default=False)
-    coin_toss_type = Column(Enum(CoinTossType), nullable=True)
+    coin_toss_type = Column(Enum(CoinTossType, values_callable=lambda obj: [e.value for e in obj]), nullable=True)
     coin_toss_result = Column(String, nullable=True)  # "heads" or "tails"
     coin_toss_winner_id = Column(String, ForeignKey("game_teams.id"), nullable=True)
 

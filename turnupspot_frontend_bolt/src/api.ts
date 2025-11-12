@@ -53,7 +53,7 @@ api.interceptors.response.use(
     }
     // Extract error message from response
     let errorMessage = "An unexpected error occurred";
-    
+
     if (error.response?.data?.detail) {
       errorMessage = error.response.data.detail;
     } else if (error.response?.data?.message) {
@@ -62,7 +62,7 @@ api.interceptors.response.use(
       errorMessage = error.message;
     }
 
-    // Show toast for specific error codes
+    // Show toast for specific error codes or any error with detail
     if (error.response?.status === 401) {
       toast.error("Authentication required. Please log in again.");
     } else if (error.response?.status === 403) {
@@ -71,6 +71,9 @@ api.interceptors.response.use(
       toast.error("Resource not found.");
     } else if (error.response?.status >= 500) {
       toast.error("Server error occurred. Please try again later.");
+    } else {
+      // Show toast for any other error with detail or message
+      toast.error(errorMessage);
     }
 
     // Re-throw with the extracted message

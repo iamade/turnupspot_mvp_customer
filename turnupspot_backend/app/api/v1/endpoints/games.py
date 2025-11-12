@@ -12,7 +12,7 @@ from app.models.sport_group import SportGroup, SportGroupMember, MemberRole
 from app.models.game import Game, GameTeam, GamePlayer, GameStatus, PlayerStatus, Match, MatchStatus, CoinTossType
 from app.schemas.game import (
     GameCreate, GameUpdate, GameResponse, GameTimerUpdate, GameScoreUpdate,
-    GamePlayerUpdate, GamePlayerResponse
+    GamePlayerUpdate, GamePlayerResponse, CoinTossRequest
 )
 from app.core.exceptions import ForbiddenException
 from datetime import datetime, timezone
@@ -669,12 +669,18 @@ def _create_next_match_after_coin_toss(game_id: str, winner_id: str, loser_id: s
                 "message": f"Next match: {winner_team.team_name} vs {next_opponent.team_name}"
             }        
         
+def _get_attr(o, name):
+    """Defensive helper to access attributes from either dict or object"""
+    return o[name] if isinstance(o, dict) else getattr(o, name)
+
+
 def _get_next_teams_for_match(completed_matches, available_teams, team_info, is_knockout_stage):
     print(f"DEBUG: Type of completed_matches[0]: {type(completed_matches[0]) if completed_matches else 'No matches'}")
     """Get the next two teams that should play based on rotation priority"""
+    # Defensive approach to handle both dict and object match entries
     if len(available_teams) < 2:
         return None
-    
+
     # Build team statistics
     team_stats = {}
     for team in available_teams:
@@ -685,33 +691,34 @@ def _get_next_teams_for_match(completed_matches, available_teams, team_info, is_
             "losses": 0,
             "draws": 0
         }
-        
+
      # Analyze completed matches - only count matches that include teams with players
     for match in completed_matches:
         # Only process matches where both teams are in our available teams list
-        # FIX: Use object attributes instead of dictionary keys
-        team_a_in_available = any(t["id"] == match.team_a_id for t in available_teams)
-        team_b_in_available = any(t["id"] == match.team_b_id for t in available_teams)
-        
+        team_a_in_available = any(t["id"] == _get_attr(match, "team_a_id") for t in available_teams)
+        team_b_in_available = any(t["id"] == _get_attr(match, "team_b_id") for t in available_teams)
+
         if team_a_in_available and team_b_in_available:
-            if match.team_a_id in team_stats:
-                team_stats[match.team_a_id]["has_played"] = True
-            if match.team_b_id in team_stats:
-                team_stats[match.team_b_id]["has_played"] = True
-            
-            if match.is_draw:
-                if match.team_a_id in team_stats:
-                    team_stats[match.team_a_id]["draws"] += 1
-                if match.team_b_id in team_stats:
-                    team_stats[match.team_b_id]["draws"] += 1
-            elif match.winner_id == match.team_a_id and match.team_a_id in team_stats:
-                team_stats[match.team_a_id]["wins"] += 1
-                if match.team_b_id in team_stats:
-                    team_stats[match.team_b_id]["losses"] += 1
-            elif match.winner_id == match.team_b_id and match.team_b_id in team_stats:
-                team_stats[match.team_b_id]["wins"] += 1
-                if match.team_a_id in team_stats:
-                    team_stats[match.team_a_id]["losses"] += 1
+            team_a_id = _get_attr(match, "team_a_id")
+            team_b_id = _get_attr(match, "team_b_id")
+            if team_a_id in team_stats:
+                team_stats[team_a_id]["has_played"] = True
+            if team_b_id in team_stats:
+                team_stats[team_b_id]["has_played"] = True
+
+            if _get_attr(match, "is_draw"):
+                if team_a_id in team_stats:
+                    team_stats[team_a_id]["draws"] += 1
+                if team_b_id in team_stats:
+                    team_stats[team_b_id]["draws"] += 1
+            elif _get_attr(match, "winner_id") == team_a_id and team_a_id in team_stats:
+                team_stats[team_a_id]["wins"] += 1
+                if team_b_id in team_stats:
+                    team_stats[team_b_id]["losses"] += 1
+            elif _get_attr(match, "winner_id") == team_b_id and team_b_id in team_stats:
+                team_stats[team_b_id]["wins"] += 1
+                if team_a_id in team_stats:
+                    team_stats[team_a_id]["losses"] += 1
     
     # # Analyze completed matches
     # for match in completed_matches:
@@ -965,7 +972,7 @@ def _validate_coin_toss_type(coin_toss_type_str: str) -> CoinTossType:
 @router.post("/{game_id}/coin-toss")
 def coin_toss(
     game_id: UUID,
-    data: dict = Body(...),
+    data: CoinTossRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -989,34 +996,27 @@ def coin_toss(
     if not is_admin:
         raise ForbiddenException("Only admin can perform coin toss")
 
-    # Validate that both teams made choices
-    team_a_choice = data.get("team_a_choice")
-    team_b_choice = data.get("team_b_choice")
-
-    if not team_a_choice or not team_b_choice:
-        raise HTTPException(status_code=400, detail="Both teams must choose heads or tails")
-
-    if team_a_choice == team_b_choice:
+    # Validate that teams made different choices
+    if data.team_a_choice == data.team_b_choice:
         raise HTTPException(status_code=400, detail="Teams cannot choose the same side")
 
     # Simulate coin toss
     result = random.choice(["heads", "tails"])
 
     # Determine winner and loser
-    if team_a_choice == result:
-        coin_toss_winner_id = data["team_a_id"]
-        coin_toss_loser_id = data["team_b_id"]
+    if data.team_a_choice == result:
+        coin_toss_winner_id = data.team_a_id
+        coin_toss_loser_id = data.team_b_id
     else:
-        coin_toss_winner_id = data["team_b_id"]
-        coin_toss_loser_id = data["team_a_id"]
+        coin_toss_winner_id = data.team_b_id
+        coin_toss_loser_id = data.team_a_id
 
     # Get team names for response
     winner_team = db.query(GameTeam).filter(GameTeam.id == coin_toss_winner_id).first()
     loser_team = db.query(GameTeam).filter(GameTeam.id == coin_toss_loser_id).first()
 
-    # Validate and convert coin toss type to enum
-    coin_toss_type_str = data.get("coin_toss_type", "draw_decider")
-    coin_toss_type = _validate_coin_toss_type(coin_toss_type_str)
+    # Validate and convert coin toss type to enum (already validated by Pydantic)
+    coin_toss_type = _validate_coin_toss_type(data.coin_toss_type)
 
     if coin_toss_type == CoinTossType.DRAW_DECIDER:
         # For draw decider: winner gets priority in rotation
@@ -1658,77 +1658,77 @@ def _determine_draw_state(current_match: Match, is_knockout_stage: bool, db: Ses
             "purpose": "Draw with goals - coin toss to determine who gets priority in next rotation"
         }
     else:
-        raise ValueError("Unexpected match state encountered.")
-    print(f"DEBUG: Evaluating draw state for match {current_match.id}")
-    print(f"DEBUG: Scores - Team A: {current_match.team_a_score}, Team B: {current_match.team_b_score}")
-    print(f"DEBUG: Knockout stage: {is_knockout_stage}")
-    """
-    Unified function to determine draw state and coin toss requirements.
+        # raise ValueError("Unexpected match state encountered.")
+        print(f"DEBUG: Evaluating draw state for match {current_match.id}")
+        print(f"DEBUG: Scores - Team A: {current_match.team_a_score}, Team B: {current_match.team_b_score}")
+        print(f"DEBUG: Knockout stage: {is_knockout_stage}")
+        """
+        Unified function to determine draw state and coin toss requirements.
 
-    Returns:
-        {
-            "requires_coin_toss": bool,
-            "coin_toss_type": CoinTossType or None,
-            "draw_type": "0-0" or "with_goals",
-            "purpose": str describing the purpose
-        }
-    """
-    game_id = current_match.game_id
-    team_a_id = current_match.team_a_id
-    team_b_id = current_match.team_b_id
-    team_a_score = current_match.team_a_score
-    team_b_score = current_match.team_b_score
+        Returns:
+            {
+                "requires_coin_toss": bool,
+                "coin_toss_type": CoinTossType or None,
+                "draw_type": "0-0" or "with_goals",
+                "purpose": str describing the purpose
+            }
+        """
+        game_id = current_match.game_id
+        team_a_id = current_match.team_a_id
+        team_b_id = current_match.team_b_id
+        team_a_score = current_match.team_a_score
+        team_b_score = current_match.team_b_score
 
-    # Determine draw type
-    draw_type = "0-0" if (team_a_score == 0 and team_b_score == 0) else "with_goals"
+        # Determine draw type
+        draw_type = "0-0" if (team_a_score == 0 and team_b_score == 0) else "with_goals"
 
-    # Check if this is a rematch between previously drawn teams
-    previous_draws = db.query(Match).filter(
-        and_(
-            Match.game_id == game_id,
-            Match.is_draw == True,
-            or_(
-                and_(Match.team_a_id == team_a_id, Match.team_b_id == team_b_id),
-                and_(Match.team_a_id == team_b_id, Match.team_b_id == team_a_id)
+        # Check if this is a rematch between previously drawn teams
+        previous_draws = db.query(Match).filter(
+            and_(
+                Match.game_id == game_id,
+                Match.is_draw == True,
+                or_(
+                    and_(Match.team_a_id == team_a_id, Match.team_b_id == team_b_id),
+                    and_(Match.team_a_id == team_b_id, Match.team_b_id == team_a_id)
+                )
             )
-        )
-    ).all()
+        ).all()
 
-    if previous_draws:
-        # Rematch between teams that previously drew - coin toss required
-        return {
-            "requires_coin_toss": True,
-            "coin_toss_type": CoinTossType.DRAW_DECIDER,
-            "draw_type": draw_type,
-            "purpose": "Rematch after previous draw - coin toss to determine who gets priority in next rotation"
-        }
-    elif team_a_score == 0 and team_b_score == 0:
-        # 0-0 draw: Coin toss required to determine play order
-        print("DEBUG: Handling 0-0 draw scenario.")
-        return {
-            "requires_coin_toss": True,
-            "coin_toss_type": CoinTossType.STARTING_TEAM,
-            "draw_type": "0-0",
-            "purpose": "0-0 draw - coin toss to determine who plays first in next rotation"
-        }
-    elif is_knockout_stage and draw_type == "with_goals":
-        # Draw with goals in knockout stage: No coin toss needed
-        print("DEBUG: Handling draw with goals in knockout stage.")
-        return {
-            "requires_coin_toss": False,
-            "coin_toss_type": None,
-            "draw_type": "with_goals",
-            "purpose": "Draw with goals in knockout stage - both teams continue in rotation"
-        }
-    elif draw_type == "with_goals":
-        # Draw with goals in first rotation: Coin toss required
-        print("DEBUG: Handling draw with goals in first rotation.")
-        return {
-            "requires_coin_toss": True,
-            "coin_toss_type": CoinTossType.DRAW_DECIDER,
-            "draw_type": "with_goals",
-            "purpose": "Draw with goals - coin toss to determine who gets priority in next rotation"
-        }
+        if previous_draws:
+            # Rematch between teams that previously drew - coin toss required
+            return {
+                "requires_coin_toss": True,
+                "coin_toss_type": CoinTossType.DRAW_DECIDER,
+                "draw_type": draw_type,
+                "purpose": "Rematch after previous draw - coin toss to determine who gets priority in next rotation"
+            }
+        elif team_a_score == 0 and team_b_score == 0:
+            # 0-0 draw: Coin toss required to determine play order
+            print("DEBUG: Handling 0-0 draw scenario.")
+            return {
+                "requires_coin_toss": True,
+                "coin_toss_type": CoinTossType.STARTING_TEAM,
+                "draw_type": "0-0",
+                "purpose": "0-0 draw - coin toss to determine who plays first in next rotation"
+            }
+        elif is_knockout_stage and draw_type == "with_goals":
+            # Draw with goals in knockout stage: No coin toss needed
+            print("DEBUG: Handling draw with goals in knockout stage.")
+            return {
+                "requires_coin_toss": False,
+                "coin_toss_type": None,
+                "draw_type": "with_goals",
+                "purpose": "Draw with goals in knockout stage - both teams continue in rotation"
+            }
+        elif draw_type == "with_goals":
+            # Draw with goals in first rotation: Coin toss required
+            print("DEBUG: Handling draw with goals in first rotation.")
+            return {
+                "requires_coin_toss": True,
+                "coin_toss_type": CoinTossType.DRAW_DECIDER,
+                "draw_type": "with_goals",
+                "purpose": "Draw with goals - coin toss to determine who gets priority in next rotation"
+            }
 
 
 def _check_if_match_requires_coin_toss(game_id: str, team_a_id: str, team_b_id: str, db: Session) -> bool:

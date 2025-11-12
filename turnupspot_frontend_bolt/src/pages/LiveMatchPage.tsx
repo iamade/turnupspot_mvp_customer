@@ -247,11 +247,15 @@ const LiveMatchPage: React.FC = () => {
       });
     } catch (error) {
       console.error("Error fetching suggested teams:", error);
-      // Fallback to first two available teams
-      if (availableTeams.length >= 2) {
+      // Fallback to first two available teams that haven't played
+      const playedTeamIds = new Set(
+        gameState?.completed_matches.flatMap(match => [match.team_a_id, match.team_b_id]) || []
+      );
+      const availableUnplayedTeams = availableTeams.filter(team => !playedTeamIds.has(team.id));
+      if (availableUnplayedTeams.length >= 2) {
         setSuggestedTeams({
-          team_a: availableTeams[0],
-          team_b: availableTeams[1],
+          team_a: availableUnplayedTeams[0],
+          team_b: availableUnplayedTeams[1],
           reason: "Default selection",
           is_knockout_stage: false,
         });
@@ -446,12 +450,11 @@ const LiveMatchPage: React.FC = () => {
   });
 
   useEffect(() => {
-    if (gameState?.coin_toss_state?.pending) {
-      // Automatically show coin toss UI when coin toss is pending
-      setCoinTossMode(false); // Reset to show the "Start Coin Toss" button
-      setCoinTossChoices({ team_a_choice: "", team_b_choice: "" }); // Reset choices
+    if (gameState?.coin_toss_state?.pending && !coinTossMode) {
+      setCoinTossMode(false);
+      setCoinTossChoices({ team_a_choice: "", team_b_choice: "" });
     }
-  }, [gameState?.coin_toss_state]);
+  }, [gameState?.coin_toss_state?.pending, coinTossMode]);
 
   // Format timer display
   const formatTime = (seconds: number): string => {
@@ -577,16 +580,16 @@ const LiveMatchPage: React.FC = () => {
     try {
       whistleSound.play();
 
-      // Use the existing start-match endpoint which should handle timer
+      // Start the timer first as required by backend
+      await gameAPI.startTimer(gameId);
+
+      // Then start the match
       await gameAPI.startMatch(gameId, {
         team_a_id: teamAId,
         team_b_id: teamBId,
       });
 
       toast.success("Match started!");
-
-      // Then start the timer separately if needed
-      await gameAPI.startTimer(gameId);
 
       await fetchGameState();
     } catch (error) {

@@ -75,7 +75,7 @@ class Match(Base):
 class Game(Base):
     __tablename__ = "games"
 
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
     # date = Column(DateTime, nullable=False)
     status = Column(String, default="scheduled")  # scheduled, active, completed

@@ -451,21 +451,94 @@ def get_game_state(
         currently_playing_team_ids.add(current_match.team_a_id)
         currently_playing_team_ids.add(current_match.team_b_id)
 
+    # Calculate last_played_at and coin toss stats for all teams to determine rotation order
+    for match in completed_matches:
+        match_time = match.completed_at or match.created_at
+        if not match_time:
+            continue
+
+        # Update team A stats
+        if match.team_a_id in team_info:
+            current_last = team_info[match.team_a_id].get("last_played_at")
+            if current_last is None or match_time > current_last:
+                team_info[match.team_a_id]["last_played_at"] = match_time
+
+            # Check toss winner status for this match if it was a draw
+            if match.is_draw and match.coin_toss_winner_id == match.team_a_id:
+                team_info[match.team_a_id]["last_draw_toss_winner"] = True
+            elif match.is_draw:
+                # Reset if they didn't win this specific draw toss (oversimplification but works for current rotation logic)
+                team_info[match.team_a_id]["last_draw_toss_winner"] = False
+
+        # Update team B stats
+        if match.team_b_id in team_info:
+            current_last = team_info[match.team_b_id].get("last_played_at")
+            if current_last is None or match_time > current_last:
+                team_info[match.team_b_id]["last_played_at"] = match_time
+
+            # Check toss winner status
+            if match.is_draw and match.coin_toss_winner_id == match.team_b_id:
+                team_info[match.team_b_id]["last_draw_toss_winner"] = True
+            elif match.is_draw:
+                team_info[match.team_b_id]["last_draw_toss_winner"] = False
+
     available_teams = []
     for team in teams_with_players:
         if team.id not in currently_playing_team_ids:
+            # Get stats
+            info = team_info.get(team.id, {})
+            last_played = info.get("last_played_at")
+            is_toss_winner = info.get("last_draw_toss_winner", False)
+
             available_teams.append(
                 {
                     "id": team.id,
                     "name": team.team_name,
                     "team_number": team.team_number,
                     "captain_id": team.captain_id,
-                    "player_count": team_info[team.id]["player_count"],
+                    "player_count": info["player_count"],
+                    "last_played_at": last_played.isoformat() if last_played else None,
+                    "last_draw_toss_winner": is_toss_winner,
                 }
             )
 
-    # Sort available teams by team number for consistent ordering
-    available_teams.sort(key=lambda x: x["team_number"])
+    # Sort available teams by Rotation Priority (FIFO)
+    # 1. Never Played (last_played_at is None) - Sort by team number
+    # 2. Played Teams - Sort by last_played_at (Oldest First), then Toss Winner priority
+
+    from datetime import datetime
+
+    def rotation_sort_key(item):
+        # Primary: Has played? (None comes first)
+        has_played = item["last_played_at"] is not None
+
+        # Secondary: Time (Oldest first)
+        # We use a dummy max time for None so they group together if we were sorting all by time,
+        # but the 'has_played' flag handles the split.
+        time_str = item["last_played_at"]
+        if time_str:
+            time_val = time_str  # String comparison works for ISO format
+
+            # Tertiary: Toss Winner Priority for played teams
+            # Winner should be selected BEFORE Loser of same match.
+            # So we want distinct separation.
+            # We want (Time, Winner) to come before (Time, Loser).
+            # Winner=True, Loser=False.
+            # Sort is Ascending.
+            # We want True < False? No, we want True to come FIRST.
+            # So we use `not is_toss_winner`: True->False(0), False->True(1).
+            # 0 comes before 1. Correct.
+            toss_priority = not item["last_draw_toss_winner"]
+        else:
+            time_val = ""  # Irrelevant for never played
+            toss_priority = False
+
+        # Quaternary: Team Number
+        team_num = item["team_number"]
+
+        return (has_played, time_val, toss_priority, team_num)
+
+    available_teams.sort(key=rotation_sort_key)
 
     # Check if all teams have played at least once
     teams_that_played = set()

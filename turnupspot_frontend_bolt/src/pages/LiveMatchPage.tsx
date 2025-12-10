@@ -771,26 +771,32 @@ const LiveMatchPage: React.FC = () => {
       </Link>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-        {/* Left Sidebar - Available Teams */}
+        {/* Left Sidebar - Next Up (Rotation) */}
         <div className="md:col-span-1 space-y-8">
-          {/* Available Teams */}
+          {/* Next Up List */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center">
               <Users className="w-5 h-5 text-blue-600 mr-2" />
-              Available Teams ({availableTeams.length})
+              Next Up ({availableTeams.length})
             </h2>
             <div className="space-y-2">
               {availableTeams.length > 0 ? (
-                availableTeams.map((team) => (
+                availableTeams.map((team, index) => (
                   <div
                     key={team.id}
                     className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
                   >
                     <div>
-                      <p className="font-medium">{team.name}</p>
-                      <p className="text-sm text-gray-600">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-400">#{index + 1}</span>
+                        <p className="font-medium">{team.name}</p>
+                      </div>
+                      <p className="text-sm text-gray-600 ml-6">
                         Team {team.team_number} • {team.player_count || 0}{" "}
                         players
+                      </p>
+                      <p className="text-xs text-blue-600 ml-6 mt-1">
+                        Round: {gameState.is_knockout_stage ? "Knockout (1 Goal)" : "Regular (2 Goal Lead)"}
                       </p>
                     </div>
                     {team.captain_id && (
@@ -1108,8 +1114,8 @@ const LiveMatchPage: React.FC = () => {
             </div>
           )}
 
-          {/* Coin Toss UI - Show only when no active match matches dashboard view */}
-          {gameState.coin_toss_state?.pending && !gameState.current_match && (
+          {/* Coin Toss UI - Show even if match is active (parallel workflow) */}
+          {gameState.coin_toss_state?.pending && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold mb-4 flex items-center">
                 <Crown className="w-5 h-5 text-yellow-600 mr-2" />

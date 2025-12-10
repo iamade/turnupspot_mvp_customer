@@ -53,17 +53,24 @@ api.interceptors.response.use(
     }
     // Extract error message from response
     let errorMessage = "An unexpected error occurred";
-    
+
     if (error.response?.data?.detail) {
-      errorMessage = error.response.data.detail;
+      const detail = error.response.data.detail;
+      if (Array.isArray(detail)) {
+        errorMessage = detail.map((err: any) => err.msg || JSON.stringify(err)).join(", ");
+      } else {
+        errorMessage = String(detail);
+      }
     } else if (error.response?.data?.message) {
       errorMessage = error.response.data.message;
     } else if (error.message) {
       errorMessage = error.message;
     }
 
-    // Show toast for specific error codes
-    if (error.response?.status === 401) {
+    // Show toast for specific error codes or any error with detail
+    if (errorMessage && errorMessage !== "An unexpected error occurred") {
+       toast.error(errorMessage);
+    } else if (error.response?.status === 401) {
       toast.error("Authentication required. Please log in again.");
     } else if (error.response?.status === 403) {
       toast.error("Permission denied.");
@@ -71,6 +78,9 @@ api.interceptors.response.use(
       toast.error("Resource not found.");
     } else if (error.response?.status >= 500) {
       toast.error("Server error occurred. Please try again later.");
+    } else {
+      // Show toast for any other error with detail or message
+      toast.error(errorMessage);
     }
 
     // Re-throw with the extracted message
@@ -101,5 +111,60 @@ export const del = <T = unknown>(
   url: string,
   config?: AxiosRequestConfig
 ): Promise<AxiosResponse<T>> => api.delete<T>(url, config);
+
+// Game and Match API functions
+export const gameAPI = {
+  // Get game state
+  getGameState: (gameId: string) =>
+    get(`/games/${gameId}/state`),
+
+  // Get game day info
+  getGameDayInfo: (sportGroupId: string) =>
+    get(`/games/game-day/${sportGroupId}`),
+
+  // Start match
+  startMatch: (gameId: string, data: { team_a_id: string; team_b_id: string }) =>
+    post(`/games/${gameId}/start-match`, data),
+
+  // End match
+  endMatch: (gameId: string) =>
+    post(`/games/${gameId}/match/end`),
+
+  // Update match score
+  updateScore: (gameId: string, data: { team_id: string; action: "increment" | "decrement" | "set"; value?: number }) =>
+    post(`/games/${gameId}/match/score`, data),
+
+  // Start scheduled match
+  startScheduledMatch: (gameId: string) =>
+    post(`/games/${gameId}/match/start-scheduled`),
+
+  // Timer controls
+  startTimer: (gameId: string) =>
+    post(`/games/${gameId}/timer/start`),
+
+  updateTimer: (gameId: string, data: { action: string; time?: number }) =>
+    post(`/games/${gameId}/timer`, data),
+
+  getTimerStatus: (gameId: string) =>
+    get(`/games/${gameId}/timer`),
+
+  // Coin toss functions
+  performCoinToss: (gameId: string, data: {
+    team_a_id: string;
+    team_b_id: string;
+    team_a_choice: string;
+    team_b_choice: string;
+    coin_toss_type?: string;
+  }) =>
+    post(`/games/${gameId}/coin-toss`, data),
+
+  // Get suggested teams
+  getSuggestedTeams: (gameId: string) =>
+    get(`/games/${gameId}/suggested-teams`),
+
+  // Get teams for game
+  getGameTeams: (gameId: string) =>
+    get<{ teams: unknown[] }>(`/games/${gameId}/teams`),
+};
 
 export default api;

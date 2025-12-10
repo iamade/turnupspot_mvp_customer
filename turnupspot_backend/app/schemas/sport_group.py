@@ -5,6 +5,7 @@ from enum import Enum
 
 from app.models.sport_group import SportsType, MemberRole
 
+
 class Day(str, Enum):
     MONDAY = "Monday"
     TUESDAY = "Tuesday"
@@ -14,11 +15,14 @@ class Day(str, Enum):
     SATURDAY = "Saturday"
     SUNDAY = "Sunday"
 
+
 class PlayingDayBase(BaseModel):
     day: Day
 
+
 class PlayingDayCreate(PlayingDayBase):
     pass
+
 
 class PlayingDay(PlayingDayBase):
     id: str
@@ -26,6 +30,7 @@ class PlayingDay(PlayingDayBase):
 
     class Config:
         from_attributes = True
+
 
 class SportGroupBase(BaseModel):
     name: str
@@ -39,20 +44,23 @@ class SportGroupBase(BaseModel):
     max_teams: int = Field(gt=0)
     max_players_per_team: int = Field(gt=0)
     rules: Optional[str] = None
+    game_config: Optional[str] = None
+    min_players_per_team: int = Field(default=3, gt=0)
     referee_required: bool = False
     sports_type: SportsType
 
-    @field_validator('max_teams')
+    @field_validator("max_teams")
     def validate_max_teams(cls, v):
         if v < 2:
-            raise ValueError('Must have at least 2 teams')
+            raise ValueError("Must have at least 2 teams")
         return v
 
-    @field_validator('max_players_per_team')
+    @field_validator("max_players_per_team")
     def validate_max_players(cls, v):
         if v < 1:
-            raise ValueError('Must have at least 1 player per team')
+            raise ValueError("Must have at least 1 player per team")
         return v
+
     class Config:
         from_attributes = True
 
@@ -73,20 +81,22 @@ class SportGroupUpdate(BaseModel):
     max_teams: Optional[int] = Field(None, gt=0)
     max_players_per_team: Optional[int] = Field(None, gt=0)
     rules: Optional[str] = None
+    game_config: Optional[str] = None
+    min_players_per_team: Optional[int] = Field(None, gt=0)
     referee_required: Optional[bool] = None
     sports_type: Optional[SportsType] = None
-   
-    @field_validator('playing_days', mode='before')
+
+    @field_validator("playing_days", mode="before")
     @classmethod
     def normalize_playing_days(cls, v):
         if v is None:
             return v
-        
+
         normalized = []
         for item in v:
-            if isinstance(item, dict) and 'day' in item:
+            if isinstance(item, dict) and "day" in item:
                 # Extract day from PlayingDay object
-                day_value = item['day']
+                day_value = item["day"]
                 normalized.append(day_value)
             elif isinstance(item, str):
                 # Handle string values - convert uppercase to title case if needed
@@ -96,8 +106,9 @@ class SportGroupUpdate(BaseModel):
             else:
                 # Handle other types (shouldn't happen but just in case)
                 normalized.append(str(item))
-        
+
         return normalized
+
 
 class SportGroupMemberResponse(BaseModel):
     id: int
@@ -140,4 +151,5 @@ class SportGroupJoinRequest(BaseModel):
 
 # Import here to avoid circular imports
 from app.schemas.user import UserResponse
+
 SportGroupMemberResponse.model_rebuild()

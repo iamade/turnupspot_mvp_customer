@@ -24,8 +24,8 @@ def create_games_for_today():
             new_game = Game(
                 sport_group_id=group.id,
                 game_date=today,
-                start_time=datetime.combine(today, group.game_start_time.time()),
-                end_time=datetime.combine(today, group.game_end_time.time()),
+                start_time=datetime.combine(today, group.game_start_time),
+                end_time=datetime.combine(today, group.game_end_time),
                 status=GameStatus.SCHEDULED
             )
             db.add(new_game)

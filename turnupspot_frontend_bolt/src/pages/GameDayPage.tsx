@@ -655,8 +655,7 @@ const GameDayPage = () => {
       toast.success("Manual participants drafted successfully!");
     } catch (error: any) {
       // Error message will be shown by the API interceptor
-      const errorMessage = error instanceof Error ? error.message : "Failed to draft manual participants";
-    toast.error(errorMessage);
+      // Error message will be shown by the API interceptor
     console.error("Draft manual participants error:", error);
    };
   }

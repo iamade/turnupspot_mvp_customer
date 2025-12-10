@@ -33,6 +33,14 @@ interface SportGroup {
     role: string | null;
     is_creator: boolean;
   } | null;
+  game_config?: string;
+  min_players_per_team?: number;
+}
+
+interface GameConfig {
+  win_score: number;
+  draw_strategy: string;
+  rotation_strategy: string;
 }
 
 const SportGroupDetailsPage: React.FC = () => {
@@ -164,7 +172,7 @@ const SportGroupDetailsPage: React.FC = () => {
     },
   ];
 
-  const isGameDay = true;
+
   const isAdmin =
     group?.current_user_membership?.role === "admin" ||
     group?.current_user_membership?.is_creator;
@@ -300,6 +308,89 @@ const SportGroupDetailsPage: React.FC = () => {
                 Group Chat (Disabled)
               </h3>
               <p className="text-gray-500">Not available</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+
+      {/* Group Info Section */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-xl font-bold mb-4">Group Information</h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h3 className="font-semibold text-gray-700 mb-2">Description</h3>
+            <p className="text-gray-600">{group.description || "No description provided."}</p>
+          </div>
+          
+          <div>
+            <h3 className="font-semibold text-gray-700 mb-2">Venue</h3>
+            <p className="text-gray-600 font-medium">{group.venue_name}</p>
+            <p className="text-gray-500 text-sm">{group.venue_address}</p>
+          </div>
+          
+          <div>
+            <h3 className="font-semibold text-gray-700 mb-2">Playing Days</h3>
+             <div className="flex flex-wrap gap-2">
+              {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => {
+                 const isPlayingDay = group.playing_days?.includes(day);
+                 return (
+                   <span
+                     key={day}
+                     className={`px-3 py-1 rounded-full text-sm ${
+                       isPlayingDay
+                         ? "bg-purple-100 text-purple-800 font-medium border border-purple-200"
+                         : "bg-gray-100 text-gray-400"
+                     }`}
+                   >
+                     {day.slice(0, 3)}
+                   </span>
+                 );
+              })}
+            </div>
+          </div>
+          
+          <div>
+            <h3 className="font-semibold text-gray-700 mb-2">Game Rules</h3>
+            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+               {group.game_config ? (
+                 (() => {
+                   try {
+                     const config: GameConfig = JSON.parse(group.game_config);
+                     return (
+                       <>
+                         <div className="flex justify-between">
+                           <span className="text-gray-600">Win Condition:</span>
+                           <span className="font-medium">{config.win_score} Goals</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-600">Draw Handling:</span>
+                           <span className="font-medium capitalize">{config.draw_strategy.replace('_', ' ')}</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-600">Rotation:</span>
+                           <span className="font-medium capitalize">{config.rotation_strategy.replace('_', ' ')}</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-600">Min Players/Team:</span>
+                           <span className="font-medium">{group.min_players_per_team || 3}</span>
+                         </div>
+                       </>
+                     );
+                   } catch (e) {
+                     return <p className="text-gray-500 italic">Custom rules configured but failed to parse.</p>;
+                   }
+                 })()
+               ) : (
+                 <p className="text-gray-500 italic">Standard rules apply.</p>
+               )}
+               {group.rules && (
+                 <div className="mt-3 pt-3 border-t border-gray-200">
+                   <p className="text-sm text-gray-600 whitespace-pre-wrap">{group.rules}</p>
+                 </div>
+               )}
             </div>
           </div>
         </div>

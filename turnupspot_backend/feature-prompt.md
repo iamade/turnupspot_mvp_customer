@@ -1,3 +1,7 @@
+update group page issue - the game rules is not displaying, the days selected are not highlighted, the 
+
+=========================================
+
 the way the football section of the app for this particular group playing 5 aside should work is when we have teams on the game day to play football . there are two stages of game play.
 - the first is the general game play where every team plays against another team in the sequence of their group number.  e.g if we have team 1, 2, 3 ,4,5 then its team 1 vs team 2, the winner plays team 3, the winner plays team 4, the winner plays team 5 etc and the winner is selected as follows: if a team scores 2 goals first, so the score can be 2-0 or 2-1 but it can not be 2-2, the winner can also win if they score 1-0 and maintain the lead till the clock runs out. however when there is a draw e.g 0-0 1-1 but not 2-2 both teams leave the pitch for the next two teams to play. and there is a coin toss for the drawing teams to determine who plays first. the winner of the toss plays before the loser in the knockout stage and teams play priority is: never played > lost > drawn(coin toss winner) > drawn(coin toss loser) > won 
 

@@ -55,7 +55,12 @@ api.interceptors.response.use(
     let errorMessage = "An unexpected error occurred";
 
     if (error.response?.data?.detail) {
-      errorMessage = error.response.data.detail;
+      const detail = error.response.data.detail;
+      if (Array.isArray(detail)) {
+        errorMessage = detail.map((err: any) => err.msg || JSON.stringify(err)).join(", ");
+      } else {
+        errorMessage = String(detail);
+      }
     } else if (error.response?.data?.message) {
       errorMessage = error.response.data.message;
     } else if (error.message) {
@@ -63,7 +68,9 @@ api.interceptors.response.use(
     }
 
     // Show toast for specific error codes or any error with detail
-    if (error.response?.status === 401) {
+    if (errorMessage && errorMessage !== "An unexpected error occurred") {
+       toast.error(errorMessage);
+    } else if (error.response?.status === 401) {
       toast.error("Authentication required. Please log in again.");
     } else if (error.response?.status === 403) {
       toast.error("Permission denied.");

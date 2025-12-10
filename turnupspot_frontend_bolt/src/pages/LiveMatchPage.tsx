@@ -100,6 +100,7 @@ interface Match {
   referee_id?: number;
   completed_at?: string;
   started_at?: string;
+  coin_toss_winner_id?: string;
 }
 
 interface AvailableTeam {
@@ -1107,8 +1108,8 @@ const LiveMatchPage: React.FC = () => {
             </div>
           )}
 
-          {/* Coin Toss UI */}
-          {gameState.coin_toss_state?.pending && (
+          {/* Coin Toss UI - Show only when no active match matches dashboard view */}
+          {gameState.coin_toss_state?.pending && !gameState.current_match && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-bold mb-4 flex items-center">
                 <Crown className="w-5 h-5 text-yellow-600 mr-2" />
@@ -1409,10 +1410,9 @@ const LiveMatchPage: React.FC = () => {
                             WINNER
                           </div>
                         )}
-                        {(match as any).coin_toss_winner_id ===
-                          match.team_a_id && (
-                          <div className="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full mt-1 inline-block ml-1">
-                            🪙 WON TOSS
+                        {match.coin_toss_winner_id === match.team_a_id && (
+                          <div className="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full mt-1 inline-block">
+                            WON TOSS
                           </div>
                         )}
                       </div>
@@ -1430,10 +1430,9 @@ const LiveMatchPage: React.FC = () => {
                             WINNER
                           </div>
                         )}
-                        {(match as any).coin_toss_winner_id ===
-                          match.team_b_id && (
-                          <div className="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full mt-1 inline-block ml-1">
-                            🪙 WON TOSS
+                        {match.coin_toss_winner_id === match.team_b_id && (
+                          <div className="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full mt-1 inline-block">
+                            WON TOSS
                           </div>
                         )}
                       </div>

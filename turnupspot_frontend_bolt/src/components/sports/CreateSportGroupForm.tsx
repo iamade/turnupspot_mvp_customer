@@ -51,6 +51,11 @@ const CreateSportGroupForm: React.FC = () => {
     rules: "",
     weatherPolicy: "",
     substitutionPolicy: "",
+    // Game Config
+    minPlayersPerTeam: "3",
+    winScore: "2",
+    drawStrategy: "coin_toss",
+    rotationStrategy: "standard",
   });
 
   // Google Places API state
@@ -247,6 +252,17 @@ const CreateSportGroupForm: React.FC = () => {
       submitData.append("game_end_time", formData.gameEndTime);
       submitData.append("max_teams", formData.maxTeams);
       submitData.append("max_players_per_team", formData.maxPlayersPerTeam);
+      submitData.append("max_players_per_team", formData.maxPlayersPerTeam);
+      submitData.append("min_players_per_team", formData.minPlayersPerTeam);
+      
+      // Bundle game rules into game_config JSON
+      const gameConfig = {
+        win_score: parseInt(formData.winScore),
+        draw_strategy: formData.drawStrategy,
+        rotation_strategy: formData.rotationStrategy
+      };
+      submitData.append("game_config", JSON.stringify(gameConfig));
+      
       submitData.append("rules", formData.rules);
       submitData.append(
         "referee_required",
@@ -624,6 +640,93 @@ const CreateSportGroupForm: React.FC = () => {
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 required
               />
+            </div>
+          </div>
+        </div>
+
+        {/* Game Rules Configuration */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Game Rules Configuration</h2>
+          
+          <div className="grid grid-cols-2 gap-4">
+             <div>
+              <label
+                htmlFor="minPlayersPerTeam"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Min Players per Team
+              </label>
+              <input
+                type="number"
+                id="minPlayersPerTeam"
+                min="1"
+                value={formData.minPlayersPerTeam}
+                onChange={(e) =>
+                  setFormData({ ...formData, minPlayersPerTeam: e.target.value })
+                }
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="winScore"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Goals to Win
+              </label>
+              <input
+                type="number"
+                id="winScore"
+                min="1"
+                value={formData.winScore}
+                onChange={(e) =>
+                  setFormData({ ...formData, winScore: e.target.value })
+                }
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label
+                htmlFor="drawStrategy"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Draw Handling
+              </label>
+              <select
+                id="drawStrategy"
+                value={formData.drawStrategy}
+                onChange={(e) =>
+                  setFormData({ ...formData, drawStrategy: e.target.value })
+                }
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option value="coin_toss">Coin Toss (Winner plays next)</option>
+                <option value="none">No Coin Toss (Both leave)</option>
+              </select>
+            </div>
+             <div>
+              <label
+                htmlFor="rotationStrategy"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Rotation Strategy
+              </label>
+              <select
+                id="rotationStrategy"
+                value={formData.rotationStrategy}
+                onChange={(e) =>
+                  setFormData({ ...formData, rotationStrategy: e.target.value })
+                }
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option value="standard">Standard (Priority Queue)</option>
+                <option value="winner_stays">Winner Stays On</option>
+              </select>
             </div>
           </div>
         </div>

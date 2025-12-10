@@ -1,4 +1,15 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum, Float, Time
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    Enum as SQLEnum,
+    Float,
+    Time,
+)
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from enum import Enum
@@ -42,7 +53,8 @@ class AgeGroup(str, Enum):
 class MemberRole(str, Enum):
     ADMIN = "admin"
     MEMBER = "member"
-    
+
+
 class Day(str, Enum):
     MONDAY = "Monday"
     TUESDAY = "Tuesday"
@@ -51,6 +63,7 @@ class Day(str, Enum):
     FRIDAY = "Friday"
     SATURDAY = "Saturday"
     SUNDAY = "Sunday"
+
 
 class PlayingDay(Base):
     __tablename__ = "playing_days"
@@ -80,10 +93,12 @@ class SportGroup(Base):
     max_teams = Column(Integer, nullable=False)
     max_players_per_team = Column(Integer, nullable=False)
     rules = Column(String)
+    game_config = Column(Text, nullable=True)  # JSON string for game rules
+    min_players_per_team = Column(Integer, default=3)
     referee_required = Column(Boolean, default=False)
     created_by = Column(String, ForeignKey("users.email"), nullable=False)
     sports_type = Column(SQLEnum(SportsType), nullable=False)
-    
+
     # Meta
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_active = Column(Boolean, default=True)
@@ -92,15 +107,15 @@ class SportGroup(Base):
 
     # Relationships
     creator = relationship(
-        "User",
-        back_populates="created_sport_groups",
-        foreign_keys=[creator_id]
+        "User", back_populates="created_sport_groups", foreign_keys=[creator_id]
     )
     teams = relationship("Team", back_populates="sport_group")
     members = relationship("SportGroupMember", back_populates="sport_group")
     games = relationship("Game", back_populates="sport_group")
     chat_room = relationship("ChatRoom", back_populates="sport_group", uselist=False)
-    playing_days = relationship("PlayingDay", back_populates="sport_group", cascade="all, delete-orphan")
+    playing_days = relationship(
+        "PlayingDay", back_populates="sport_group", cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<SportGroup(id={self.id}, name='{self.name}', sport='{self.sports_type}')>"
@@ -132,21 +147,23 @@ class SportGroupMember(Base):
 
     def __repr__(self):
         return f"<SportGroupMember(group_id={self.sport_group_id}, user_id={self.user_id}, role='{self.role}')>"
-    
+
+
 class TeamMember(Base):
     __tablename__ = "team_members"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     arrival_time = Column(DateTime, nullable=True)
-    
-    #Relationships
+
+    # Relationships
     team = relationship("Team", back_populates="members")
     user = relationship("User")
-    
+
     def __repr__(self):
         return f"<TeamMember(team_id={self.team_id}, user_id={self.user_id})>"
+
 
 class Team(Base):
     __tablename__ = "teams"
@@ -157,7 +174,7 @@ class Team(Base):
 
     # Relationships
     sport_group = relationship("SportGroup", back_populates="teams")
-    members = relationship("TeamMember", back_populates="team") 
+    members = relationship("TeamMember", back_populates="team")
 
     def __repr__(self):
         return f"<Team(id={self.id}, name='{self.name}', sport_group_id='{self.sport_group_id}')>"

@@ -32,6 +32,12 @@ class MatchStatus(enum.Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
+
+class CoinTossType(str, enum.Enum):
+    DRAW_DECIDER = "draw_decider"
+    STARTING_TEAM = "starting_team"
+
+
 # Add the Match model
 class Match(Base):
     __tablename__ = "matches"
@@ -48,6 +54,13 @@ class Match(Base):
     referee_id = Column(Integer, ForeignKey("sport_group_members.id"), nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+
+    # Coin toss tracking fields
+    requires_coin_toss = Column(Boolean, default=False)
+    coin_toss_type = Column(Enum(CoinTossType, values_callable=lambda obj: [e.value for e in obj]), nullable=True)
+    coin_toss_result = Column(String, nullable=True)  # "heads" or "tails"
+    coin_toss_winner_id = Column(String, ForeignKey("game_teams.id"), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -62,7 +75,7 @@ class Match(Base):
 class Game(Base):
     __tablename__ = "games"
 
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     sport_group_id = Column(String, ForeignKey("sport_groups.id"), nullable=False)
     # date = Column(DateTime, nullable=False)
     status = Column(String, default="scheduled")  # scheduled, active, completed
